@@ -1,0 +1,50 @@
+# Build output
+target/
+build/
+out/
+*.class
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# Logs / temp
+*.log
+logs/
+tmp/
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.jks
+*.p12
+
+# AI 助手本地工作目录（不入库）
+.workbuddy/
+
+# Local data (向量库 / 索引 / 上传文件)
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# Local configuration
+application-local.yml

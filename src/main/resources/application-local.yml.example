@@ -1,0 +1,16 @@
+# Copy this file to `application-local.yml` for local infrastructure development.
+# Keep the copied file untracked; do not put passwords or API keys in git.
+
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:jobpilot}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+# When external infrastructure is available, remove the corresponding
+# auto-configuration exclusion from application.yml before enabling it.

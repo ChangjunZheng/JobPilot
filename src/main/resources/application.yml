@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: jobpilot
+  profiles:
+    default: local
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+jobpilot:
+  ai:
+    chat-model: ${JOBPILOT_AI_CHAT_MODEL:deepseek-chat}
+    max-iterations: ${JOBPILOT_AI_MAX_ITERATIONS:5}
