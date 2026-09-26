@@ -14,6 +14,7 @@
     <groupId>com.jobpilot</groupId>
     <artifactId>jobpilot</artifactId>
     <version>0.0.1-SNAPSHOT</version>
+    
     <name>jobpilot</name>
     <description>JobPilot 求职 Copilot backend</description>
 

@@ -1,5 +1,9 @@
 # Build output
 target/
+
+# Local Chroma (dev runs chroma as a local process, no Docker)
+.venv-chroma/
+chroma/
 build/
 out/
 *.class
