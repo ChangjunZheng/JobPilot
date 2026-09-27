@@ -81,15 +81,34 @@ class KnowledgeRetrievalServiceTest {
         when(embeddingPort.embed(any())).thenReturn(List.of(0.1));
         when(vectorStore.search(any(), anyInt(), anyMap()))
                 .thenThrow(new IllegalStateException("Chroma 不可用"));
-        when(chunkMapper.selectList(any())).thenReturn(List.of(chunk("doc1#0#1")));
+        // 同时命中 "RAG" 与 "经验" 两个关键词，达到 keywordMinHits = 2
+        when(chunkMapper.selectList(any()))
+                .thenReturn(List.of(chunk("doc1#0#1", "熟悉 RAG 开发，有 3 年经验")));
 
         RagAskService.AskAnswer answer = askService.ask("u1", "RAG 经验", 5, null);
 
         assertThat(answer.retrieval().degraded()).isTrue();
         assertThat(answer.retrieval().searchMode())
                 .isEqualTo(com.jobpilot.ai.SearchMode.KEYWORD_FALLBACK);
-        // 降级命中后仍会走生成，并带上降级证据
+        assertThat(answer.retrieval().items()).hasSize(1);
+        // 降级命中且过闸门后仍会走生成，并带上降级证据
         verify(chatPort).complete(anyString(), anyString());
+    }
+
+    @Test
+    void keywordFallbackBelowMinHitsRefusesWithoutLLM() {
+        when(embeddingPort.embed(any())).thenReturn(List.of(0.1));
+        when(vectorStore.search(any(), anyInt(), anyMap()))
+                .thenThrow(new IllegalStateException("Chroma 不可用"));
+        // chunk 只命中 "RAG" 一个关键词，低于 keywordMinHits = 2 → 不算证据
+        when(chunkMapper.selectList(any())).thenReturn(List.of(chunk("doc1#0#1")));
+
+        RagAskService.AskAnswer answer = askService.ask("u1", "RAG 经验", 5, null);
+
+        assertThat(answer.retrieval().degraded()).isTrue();
+        assertThat(answer.retrieval().items()).isEmpty();
+        assertThat(answer.answer()).contains("没有检索到相关证据");
+        verifyNoInteractions(chatPort);
     }
 
     @Test
@@ -120,6 +139,10 @@ class KnowledgeRetrievalServiceTest {
     }
 
     private com.jobpilot.domain.KbChunkEntity chunk(String vectorId) {
+        return chunk(vectorId, "熟悉 RAG 与 Agent 开发");
+    }
+
+    private com.jobpilot.domain.KbChunkEntity chunk(String vectorId, String text) {
         com.jobpilot.domain.KbChunkEntity chunk = new com.jobpilot.domain.KbChunkEntity();
         chunk.setVectorId(vectorId);
         chunk.setDocumentId("doc1");
@@ -128,7 +151,7 @@ class KnowledgeRetrievalServiceTest {
         chunk.setDocType("MARKDOWN");
         chunk.setSectionPath("技能");
         chunk.setSeq(0);
-        chunk.setText("熟悉 RAG 与 Agent 开发");
+        chunk.setText(text);
         chunk.setCharStart(0);
         chunk.setCharEnd(10);
         chunk.setIndexVersion(1);

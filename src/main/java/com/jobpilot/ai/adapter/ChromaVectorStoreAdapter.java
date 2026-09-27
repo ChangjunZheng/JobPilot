@@ -1,8 +1,10 @@
 package com.jobpilot.ai.adapter;
 
+import com.jobpilot.ai.CollectionNotFoundException;
 import com.jobpilot.ai.VectorStorePort;
 import com.jobpilot.config.RagProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -85,6 +87,28 @@ public class ChromaVectorStoreAdapter implements VectorStorePort {
         return matches;
     }
 
+    @Override
+    public CollectionInfo collectionInfo() {
+        // 0.6.x 没有"按 UUID 单查"的 GET 路由（/{collection_id} 挂的是 PUT），只能拉全量再比对。
+        // 该接口返回的是 JSON 数组，不是对象。
+        List<CollectionDto> all = restClient.get()
+                .uri("/api/v1/collections")
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<CollectionDto>>() {
+                });
+        List<CollectionDto> list = all == null ? List.of() : all;
+
+        String targetId = ensureCollectionId();
+        return list.stream()
+                .filter(c -> c.id() != null && c.id().equalsIgnoreCase(targetId))
+                .findFirst()
+                .map(c -> new CollectionInfo(c.id(), c.name(), c.dimension()))
+                .orElseThrow(() -> new CollectionNotFoundException(
+                        "配置的集合 UUID 不存在：" + targetId
+                                + "；当前实际存在的集合："
+                                + list.stream().map(CollectionDto::name).toList()));
+    }
+
     /** filters: {user_id: xx, doc_type: xx}，多条件用 $and 组合 */
     private Map<String, Object> buildWhere(Map<String, Object> filters) {
         List<Map<String, Object>> conditions = new ArrayList<>();
@@ -138,7 +162,7 @@ public class ChromaVectorStoreAdapter implements VectorStorePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record CollectionDto(String id, String name) {
+    record CollectionDto(String id, String name, Integer dimension) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
