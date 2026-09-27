@@ -52,3 +52,6 @@ data/
 
 # Local configuration
 application-local.yml
+
+# 个人学习记录（本地留存，不入库）
+docs/学习记录/
