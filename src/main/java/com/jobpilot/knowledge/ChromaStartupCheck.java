@@ -9,6 +9,8 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+
 /**
  * 启动自检：确认配置的 Chroma 集合真实存在，并校验向量维度是否与当前 embedding 模型一致。
  * <p>
@@ -38,9 +40,9 @@ public class ChromaStartupCheck implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        VectorStorePort.CollectionInfo info;
+        Optional<VectorStorePort.CollectionInfo> found;
         try {
-            info = vectorStore.collectionInfo();
+            found = vectorStore.collectionInfo();
         } catch (CollectionNotFoundException e) {
             // 永久性配置错误：早失败远胜晚失败
             throw new IllegalStateException("Chroma 集合自检未通过。" + e.getMessage()
@@ -51,6 +53,15 @@ public class ChromaStartupCheck implements ApplicationRunner {
             return;
         }
 
+        if (found.isEmpty()) {
+            // 未配置 collection id —— 无从自检，但这不是错误（可能是首次运行、尚未建集合）
+            log.warn("未配置 jobpilot.rag.chroma-collection-id，跳过集合自检。"
+                    + "首次导入文档时将自动创建集合，之后建议把返回的集合 UUID 写入该配置，"
+                    + "否则重启后会因按名查询缺陷而无法复用集合。");
+            return;
+        }
+
+        VectorStorePort.CollectionInfo info = found.get();
         log.info("Chroma 集合自检通过：{}（id={}）", info.name(), info.id());
 
         checkDimension(info);

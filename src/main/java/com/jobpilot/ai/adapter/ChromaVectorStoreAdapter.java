@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClient;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Chroma 0.6.x REST 适配器（/api/v1）。
@@ -87,8 +88,15 @@ public class ChromaVectorStoreAdapter implements VectorStorePort {
         return matches;
     }
 
+    /**
+     * 只读探活：绝不创建集合，因此不走 ensureCollectionId()（那个在配置为空时会创建）。
+     * 配置为空 → 返回 empty（未配置，无从自检）；配置了但不存在 → 抛 CollectionNotFoundException。
+     */
     @Override
-    public CollectionInfo collectionInfo() {
+    public Optional<CollectionInfo> collectionInfo() {
+        if (configuredCollectionId == null || configuredCollectionId.isBlank()) {
+            return Optional.empty();
+        }
         // 0.6.x 没有"按 UUID 单查"的 GET 路由（/{collection_id} 挂的是 PUT），只能拉全量再比对。
         // 该接口返回的是 JSON 数组，不是对象。
         List<CollectionDto> all = restClient.get()
@@ -98,15 +106,14 @@ public class ChromaVectorStoreAdapter implements VectorStorePort {
                 });
         List<CollectionDto> list = all == null ? List.of() : all;
 
-        String targetId = ensureCollectionId();
-        return list.stream()
-                .filter(c -> c.id() != null && c.id().equalsIgnoreCase(targetId))
+        return Optional.of(list.stream()
+                .filter(c -> c.id() != null && c.id().equalsIgnoreCase(configuredCollectionId))
                 .findFirst()
                 .map(c -> new CollectionInfo(c.id(), c.name(), c.dimension()))
                 .orElseThrow(() -> new CollectionNotFoundException(
-                        "配置的集合 UUID 不存在：" + targetId
+                        "配置的集合 UUID 不存在：" + configuredCollectionId
                                 + "；当前实际存在的集合："
-                                + list.stream().map(CollectionDto::name).toList()));
+                                + list.stream().map(CollectionDto::name).toList())));
     }
 
     /** filters: {user_id: xx, doc_type: xx}，多条件用 $and 组合 */
