@@ -52,7 +52,7 @@ class KnowledgeRetrievalServiceTest {
         when(embeddingPort.embed(any())).thenReturn(List.of(0.1));
         when(vectorStore.search(any(), anyInt(), anyMap()))
                 .thenReturn(List.of(new VectorStorePort.VectorMatch("doc1#0#1", 0.8)));
-        when(chunkMapper.selectBatchIds(any())).thenReturn(List.of(chunk("doc1#0#1")));
+        when(chunkMapper.selectByIds(any())).thenReturn(List.of(chunk("doc1#0#1")));
         when(documentMapper.selectList(any())).thenReturn(List.of(readyDoc()));
 
         RetrievalResult result = retrievalService.search(

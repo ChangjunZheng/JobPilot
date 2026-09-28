@@ -159,7 +159,7 @@ public class KnowledgeRetrievalService {
 
     /** 回捞 Chunk 并过滤：只允许 READY 文档参与检索（ARCHITECTURE.md §7.3） */
     private Map<String, KbChunkEntity> loadReadyChunks(Collection<String> vectorIds) {
-        List<KbChunkEntity> chunks = chunkMapper.selectBatchIds(vectorIds);
+        List<KbChunkEntity> chunks = chunkMapper.selectByIds(vectorIds);
         if (chunks.isEmpty()) {
             return Map.of();
         }

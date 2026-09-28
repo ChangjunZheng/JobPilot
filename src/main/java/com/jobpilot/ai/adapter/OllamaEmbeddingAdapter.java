@@ -5,7 +5,7 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -28,7 +28,12 @@ public class OllamaEmbeddingAdapter implements EmbeddingPort {
                 || response.getResult().getOutput() == null) {
             throw new IllegalStateException("Ollama 未返回 embedding");
         }
-        return Arrays.stream(response.getResult().getOutput()).boxed().toList();
+        float[] values = response.getResult().getOutput();
+        List<Double> result = new ArrayList<>(values.length);
+        for (float value : values) {
+            result.add((double) value);
+        }
+        return result;
     }
 
     @Override

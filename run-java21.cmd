@@ -10,6 +10,16 @@ if not exist "%JAVA_HOME%\bin\java.exe" (
     exit /b 1
 )
 
-call "%~dp0mvnw.cmd" %*
-if errorlevel 1 pause
-exit /b %ERRORLEVEL%
+rem No argument: clean then start the Spring Boot app. With arguments: clean + pass them through.
+if "%~1"=="" (
+    call "%~dp0mvnw.cmd" clean spring-boot:run
+) else (
+    call "%~dp0mvnw.cmd" clean %*
+)
+
+rem Capture the exit code before pause, which would overwrite it with 0.
+set "MVN_EXIT=%ERRORLEVEL%"
+
+rem Always pause at the end so the window stays open for reading startup logs
+pause
+exit /b %MVN_EXIT%

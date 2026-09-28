@@ -1,5 +1,12 @@
 package com.jobpilot.common;
 
+/**
+ * API 响应类
+ * ApiResponse
+ * @param success
+ * @param data
+ * @param error
+ */
 public record ApiResponse<T>(
         boolean success,
         T data,
