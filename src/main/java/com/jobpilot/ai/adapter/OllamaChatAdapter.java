@@ -1,57 +1,44 @@
 package com.jobpilot.ai.adapter;
 
 import com.jobpilot.ai.ChatPort;
-import com.jobpilot.config.RagProperties;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import java.util.List;
-import java.util.Map;
 
 /**
- * Ollama /api/chat 适配器（非流式）。
- * M-1 用本地模型即可跑通闭环；DeepSeek 等远端 provider 归 M-2 LLM 配置统一管理。
+ * Spring AI ChatModel 适配器（非流式）。
+ * 业务层只依赖 ChatPort；Spring AI 负责 Ollama 协议和响应模型转换，Agent 控制流仍由 JobPilot 自己实现。
  */
 @Component
 public class OllamaChatAdapter implements ChatPort {
 
-    private final RestClient restClient;
-    private final String model;
+    private final ChatModel chatModel;
 
-    public OllamaChatAdapter(RagProperties props, ClientHttpRequestFactory requestFactory) {
-        this.restClient = RestClient.builder()
-                .baseUrl(props.ollamaBaseUrl())
-                .requestFactory(requestFactory)
-                .build();
-        this.model = props.chatModel();
+    public OllamaChatAdapter(ChatModel chatModel) {
+        this.chatModel = chatModel;
     }
 
     @Override
     public String complete(String systemPrompt, String userPrompt) {
-        Map<String, Object> request = Map.of(
-                "model", model,
-                "stream", false,
-                "think", false, // qwen3 系列关闭思考链，只取最终回答
-                "options", Map.of("temperature", 0.2),
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userPrompt)));
-        ChatResponse response = restClient.post()
-                .uri("/api/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .retrieve()
-                .body(ChatResponse.class);
-        if (response == null || response.message() == null || response.message().content() == null) {
-            throw new IllegalStateException("Ollama 未返回回答，model=" + model);
+        List<Message> messages = List.of(
+                new SystemMessage(systemPrompt),
+                new UserMessage(userPrompt));
+        ChatResponse response = chatModel.call(new Prompt(messages));
+        if (response == null || response.getResult() == null
+                || response.getResult().getOutput() == null) {
+            throw new IllegalStateException("Ollama 未返回回答");
         }
-        return response.message().content().trim();
-    }
-
-    record ChatResponse(ChatMessage message) {
-        record ChatMessage(String role, String content) {
+        AssistantMessage answer = response.getResult().getOutput();
+        if (answer.getText() == null || answer.getText().isBlank()) {
+            throw new IllegalStateException("Ollama 未返回有效回答");
         }
+        return answer.getText().trim();
     }
 }

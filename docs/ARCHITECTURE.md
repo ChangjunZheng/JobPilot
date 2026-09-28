@@ -2,25 +2,27 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v0.1 |
-| 日期 | 2026-09-26 |
-| 上游文档 | [BRD v0.3](./BRD-求职Copilot需求文档.md)、[PRD v0.1](./PRD.md) |
-| 当前阶段 | M-0 架构设计与参考项目评估 |
-| 技术基线 | Java 21、Spring Boot 3.x、MyBatis-Plus、MySQL、Redis、LangChain4j、Ollama、Chroma |
+| 文档版本 | v0.2 |
+| 日期 | 2026-09-28 |
+| 上游文档 | [BRD v0.4](./BRD-求职Copilot需求文档.md)、[PRD v0.2](./PRD.md) |
+| 当前阶段 | M-1 RAG 最小闭环已完成；Spring AI Ollama 基础模型适配已接入；M-2 Agent 规划中 |
+| 技术基线 | Java 21、Spring Boot 3.5.6、MyBatis-Plus、MySQL、Redis、Spring AI 1.0.0、Ollama、Chroma |
 
-> 本文描述 JobPilot 的目标架构和 M-0 决策。`paicli` 与 `PaiSmart` 是参考案例，不是本项目的代码依赖；本文中的协议是 JobPilot 的设计边界，不代表功能已经实现。
+> 本文描述 JobPilot 的**当前实现与后续目标架构**。当前 M-1 已使用自定义 Port + `RestClient` 完成最小 RAG 闭环；M-2 的 Spring AI 接入仍是候选方案。`paicli` 与 `PaiSmart` 是参考案例，不是本项目的代码依赖。
 
 ## 1. 架构决策摘要
 
 ### 1.1 最终决策
 
 1. **JobPilot 保持独立项目**，不与 `paicli` 或 `PaiSmart` 合并，不直接引用它们的 Maven artifact 或源代码。
-2. 参考 `paicli` 的 ReAct loop、tool call 协议、预算控制和 trace 思路；参考 `PaiSmart` 的 Spring 业务工具注册、批量 embedding、检索降级和流式生成状态管理。
+2. 参考 `paicli` 的 ReAct loop、tool call 协议、预算控制和 trace 思路；参考 `PaiSmart` 的 Spring 业务工具注册、批量 embedding、检索降级和流式生成状态管理；参考 `JobClaw` 的 provider/channel/agent/plugin 解耦边界、参考 `PaiAgent` 的 Spring AI + 执行引擎分层、参考 `MemoArk` 的策略接口与用户隔离建模。
 3. 当前不直接提取完整 `paicli.Agent`、`ToolRegistry` 或 `PaiSmart` 的业务服务。它们分别绑定 CLI 运行时和既有业务基础设施，直接复用会把不需要的复杂度带入 JobPilot。
 4. JobPilot 首版 Agent 在本项目内实现一个小型同步 ReAct runner。至少完成一次真实闭环后，再依据实际重复代码决定是否提取独立 `agent-kernel`。
-5. LangChain4j 只出现在 AI 门面/适配层；业务层只依赖 JobPilot 自己定义的最小端口和结果对象。
-6. RAG 锁定 `Ollama bge-m3 + Chroma`：MySQL 保存可查询元数据、Chunk 原文和引用定位，Chroma 保存向量。
-7. 同步 Agent 闭环优先于 SSE；JWT、WebSocket、多 Agent 编排和完整前端不作为 M-1/M-2 的前置条件。
+5. **AI 框架分层决策**：基础模型/Embedding/Tool Calling 协议优先评估 Spring AI；Agent 的 ReAct 控制流、预算、HITL、trace 和领域工具执行由 JobPilot 自己控制。高层框架 Agent 不得接管这些产品策略。
+6. 当前 M-1 已使用 Spring AI 1.0.0 的 Ollama `ChatModel` / `EmbeddingModel` 作为基础模型适配，业务层仍只依赖 JobPilot 自定义 Port；Chroma 保留自定义 `RestClient` 适配，以掌控 UUID、metadata、距离转换、启动自检和降级策略。`pom.xml` 不再保留 LangChain4j 依赖。
+7. **不引入 LangChain4j 作为当前运行时依赖**。只有在 Spring AI 无法满足适配需求或未来出现明确的多 provider/复杂协议收益时，才重新评估；框架选择不能为了简历关键词而引入。
+8. RAG 锁定 `Ollama bge-m3 + Chroma`：MySQL 保存可查询元数据、Chunk 原文和引用定位，Chroma 保存向量。
+9. 同步 Agent 闭环优先于 SSE；JWT、WebSocket、多 Agent 编排和完整前端不作为 M-1/M-2 核心闭环的前置条件。
 
 ### 1.2 不采用的方案
 
@@ -31,6 +33,72 @@
 | 复制完整 `PaiSmart` RAG | 实际使用 Elasticsearch、组织权限和外部 embedding API，与 JobPilot 的 Chroma/Ollama/单用户约束不一致 |
 | 一开始建设独立 `agent-kernel` 仓库 | 尚未验证 JobPilot 需要的最小公共能力，提前抽象会固化错误边界 |
 | 一开始建设全量 `ai-port/adapter` 层级 | BRD 已明确收敛到 1~2 个 AI 门面，避免个人项目过度设计 |
+
+## 1.3 求职项目时间优先级
+
+本项目的直接目标是形成可在实习面试中演示、解释和追问的后端项目。时间紧张时按以下优先级执行：
+
+### 必须完成
+
+1. M-1 RAG：导入、切分、Embedding、Chroma、MySQL 引用、向量检索、关键词降级；
+2. 20 条固定评测集，记录 P@5、拒答正确性和至少一个失败案例；
+3. M-2 最小 Agent：无工具回答、`knowledge_search`、一个 JD 分析工具；
+4. ReAct 最大轮次/工具预算/超时/异常回填；
+5. 一个 HITL 写入工具：`PENDING_APPROVAL`、审批状态和幂等执行；
+6. 基础 trace：模型、轮次、工具顺序、耗时、状态；
+7. README、架构决策记录和可复现启动命令。
+
+### 可以后置
+
+- SSE、WebSocket、完整前端和 JWT；
+- 多 Agent 计划/执行/审查；
+- 多模型路由、复杂上下文摘要、完整长期记忆；
+- RRF/rerank/BM25 混合检索、复杂权限和分布式向量库；
+- 完整投递页面、移动端、自动投递、PDF OCR；
+- 独立 `agent-kernel` 模块或公共仓库；只有出现第二个真实复用方时才重新评估。
+
+> 判断标准：每个新增能力都要回答“能否增加可验证的面试素材，且不会阻塞 P0 闭环”。如果不能，进入 backlog。
+
+## 1.4 AI 框架决策：Spring AI 与自研控制流
+
+| 层次 | 决策 | 原因 |
+|---|---|---|
+| Chat/Embedding/Tool Calling 协议适配 | Spring AI 1.0.0 的 `ChatModel` / `EmbeddingModel` | 与 Spring Boot 生态衔接自然，减少供应商协议样板代码；业务层通过自定义 Port 隔离 |
+| VectorStore / Chroma | JobPilot 自定义 `RestClient` 适配器 | Chroma UUID、过滤 metadata、距离换算、启动自检、降级和一致性是本项目的核心可讲点 |
+| Agent ReAct 控制流 | JobPilot 自研 | 需要掌控轮次、预算、终止条件、工具异常和上下文边界 |
+| HITL / trace / 领域工具 | JobPilot 自研 | 这是求职领域产品规则，通用框架不会替你定义 |
+| LangChain4j | 当前不引入 | 当前代码没有实际使用；单 provider 场景下引入收益不足，不为简历关键词堆依赖 |
+
+**重新评估条件**：
+
+- 接入第二个真实 LLM/Embedding provider；
+- 手写协议适配代码开始显著拖慢开发；
+- Spring AI 的模型抽象、工具调用或流式能力能减少复杂度且不夺走 Agent 控制权；
+- Spring AI 版本升级经过编译、上下文启动和集成测试验证；
+- 有明确的框架使用场景和自动化测试，而不是为了技术栈名称。
+
+## 1.5 参考项目借鉴矩阵
+
+| 项目 | 借鉴点 | JobPilot 的取舍 |
+|---|---|---|
+| JobClaw | `provider / channel / agent / plugin` 可替换边界、模型供应商隔离 | 借鉴 provider 与 agent 边界；不引入 IM 渠道和多 Agent 复杂度 |
+| PaiAgent | Spring AI 模型接入、执行引擎与节点执行分离、执行事件 | 借鉴 Spring AI 接入和事件思想；不引入 DAG + LangGraph 双引擎 |
+| PaiFlow | 工作流、节点执行、状态和质量检查分离 | 借鉴执行边界；不引入 Python/Java 双引擎 |
+| PaiSmart | 混合检索、批量 embedding、索引版本、引用校验、降级 | 先实现最小向量+关键词闭环，按评测结果增量演进 |
+| PaiCLI | ReAct、工具协议、预算、工具结果边界、trace | 作为 M-2 自研 Agent runner 的主要控制流参考 |
+| MemoArk | `RetrievalService`/`AiClient` 策略接口、用户数据隔离、可替换检索实现 | 借鉴接口隔离和 user_id 纵深防御；不复制完整产品壳 |
+
+## 1.6 招聘目标与项目能力映射
+
+| 求职方向 | 项目中必须出现的证据 |
+|---|---|
+| Java 后端开发 | Spring Boot、MySQL/SQL、REST API、MyBatis-Plus、状态机、异常处理、测试、Git、可复现启动 |
+| AI 应用开发 | Spring AI、Ollama、Embedding、RAG、Chroma、引用溯源、降级检索、评测集、Prompt 组装 |
+| Agent 开发 | ReAct runner、Tool Calling、工具注册、预算、超时、异常回填、HITL、幂等、trace |
+
+**项目叙事**：不是“堆了很多 AI 框架”，而是“用 Spring AI 接入模型协议，自己控制求职领域 Agent 的执行策略，并通过 RAG 降级、引用和 HITL 解决可验证性与副作用问题”。
+
+
 
 ## 2. 参考项目评估
 
@@ -128,7 +196,8 @@
                │                  │
 ┌──────────────▼──────────────────▼──────────────┐
 │ Ports / infrastructure adapters                │
-│ LangChain4j · Ollama · Chroma · MySQL · Redis  │
+│ Spring AI (M-2 candidate) · Ollama · Chroma    │
+│ MySQL · Redis                                  │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -137,11 +206,11 @@
 | 包/边界 | 职责 | 不负责 |
 |---|---|---|
 | `controller` | HTTP 输入校验、身份上下文、DTO 转换 | Agent loop、数据库细节 |
-| `service` / `application` | 编排用例、事务边界、用户可见业务结果 | LangChain4j 类型和底层 HTTP |
+| `service` / `application` | 编排用例、事务边界、用户可见业务结果 | Spring AI 类型、供应商 SDK 类型和底层 HTTP |
 | `domain` | 业务对象、状态、规则和结果 | Spring/外部 SDK |
-| `ai` | AI 门面、Agent runner、工具协议 | Controller 细节、数据库表实现 |
+| `ai` | JobPilot 自定义端口、AI record、Agent runner、工具协议 | Controller 细节、数据库表实现 |
 | `ai.port` | Chat/Embedding/VectorStore/Trace 的最小端口 | 具体供应商配置 |
-| `ai.adapter` | LangChain4j、Ollama、Chroma 等适配 | 求职领域决策 |
+| `ai.adapter` | Spring AI（若引入）、Ollama、Chroma 等适配 | 求职领域决策 |
 | `knowledge` | 文档导入、抽取、切分、索引和引用 | 通用 Agent 编排 |
 | `mapper` / `persistence` | MySQL 元数据和 Chunk 持久化 | prompt 组装、模型调用 |
 | `config` | Spring Bean、外部服务和 profile 配置 | 业务流程 |
@@ -193,7 +262,7 @@ query + user_id
 
 如果 Chroma 不可用，RAG pipeline 通过同一检索结果协议调用 MySQL 关键词降级；返回中必须标记 `searchMode=KEYWORD_FALLBACK`。无足够相关结果时直接返回证据不足，不强行调用模型生成确定性答案。
 
-### 4.3 Agent 工具调用（M-2）
+### 4.3 Agent 工具调用（M-2，规划）
 
 ```text
 user message
@@ -241,7 +310,7 @@ ChatResponse
 - model: String
 ```
 
-业务层不得接触 LangChain4j 的 `ChatMessage`、供应商 SDK 的 response 或 HTTP JSON；适配器负责转换。
+业务层不得接触 Spring AI、供应商 SDK 的 response 或 HTTP JSON；如果 M-2 引入 Spring AI，适配器负责将其转换为 JobPilot 自己的 `ChatResponse`、`ToolCall` 等协议。当前 M-1 尚未引入 Spring AI，使用 `RestClient` 适配器。
 
 ### 5.2 Tool protocol
 
@@ -387,14 +456,20 @@ M-4: 产品壳
   同步 Controller 稳定后 → SSE → 对话页/知识库页/投递体验/简历要点 HITL
 ```
 
-### M-1 最小验收
+### M-1 当前状态与最小验收
 
-- md/txt 至少一种真实文档可完成导入和索引；
-- Ollama `bge-m3` 可返回 embedding；
-- Chroma 可写入并按查询返回 Top-K；
-- MySQL 可返回 Chunk 原文和引用定位；
-- 20 条评测集完成第一次运行，记录 P@5；
-- Chroma 不可用时降级行为有测试或手工验收记录。
+**当前状态：最小 RAG API 闭环已实现。** 已有能力包括：
+
+- Markdown/plain text 导入、按章节/长度切分；
+- Ollama `bge-m3` embedding；
+- Chroma 0.6.x 向量写入与查询；
+- MySQL Chunk 原文和 READY 状态回捞；
+- 引用定位；
+- Chroma 不可用时关键词降级与 `keywordMinHits` 闸门；
+- Chroma 集合启动自检与向量维度校验；
+- 相关单元测试和 Spring 上下文测试。
+
+仍需补强：20 条评测集、中文关键词 2 字窗口、向量路径候选池、reindex/孤儿向量清理。
 
 ### M-2 最小验收
 
@@ -403,7 +478,8 @@ M-4: 产品壳
 - 工具异常、超时和迭代上限可控；
 - 至少一个 HITL 工具能生成待审批草稿且重复审批幂等；
 - trace 能还原一次完整调用链；
-- 一个投递 CRUD 工具可按 `user_id` 工作。
+- 一个投递 CRUD 工具可按 `user_id` 工作；
+- Spring AI（若引入）只位于协议适配边界，业务层不依赖其类型。
 
 ## 10. 明确不做与后续决策
 
@@ -412,10 +488,14 @@ M-4: 产品壳
 - 不把 `paicli`/`PaiSmart` 加为 Maven、Git submodule 或源码依赖；
 - 不复制完整 `paicli.Agent`、`ToolRegistry`、`AgentOrchestrator`；
 - 不实现多 Agent 计划/执行/审查架构；
-- 不实现 SSE、WebSocket、JWT、完整前端和业务 CRUD；
+- 不把 Spring AI 或其他框架的高层 Agent 当作 JobPilot 的控制流；
+- 不把 LangChain4j 作为当前运行时依赖；
+- 不实现 SSE、WebSocket、JWT、完整前端和业务 CRUD 作为 M-1/M-2 核心闭环前置；
 - 不引入 Elasticsearch 替代 Chroma；
 - 不创建独立 `agent-kernel` 项目；
 - 不预先创建全部空 port/adapter 类。
+
+> 这里的“自研”指自研 JobPilot 的领域边界与控制流，不指重新实现 Spring Boot、HTTP 客户端、MySQL、向量数据库或大模型。
 
 ### `agent-kernel` 再评估条件
 
@@ -429,8 +509,15 @@ M-4: 产品壳
 
 在此之前，JobPilot 内部小型 runner 是更低风险的选择。
 
-## 11. 与 BRD/PRD 的对应关系
+## 12. 文档版本记录
 
+| 版本 | 日期 | 说明 |
+|---|---|---|
+| v0.1 | 2026-09-26 | M-0 架构设计与参考项目评估 |
+| v0.2 | 2026-09-28 | 根据 M-1 实际代码更新；移除 LangChain4j 既定依赖口径；增加 Spring AI 候选定位、自研 Agent 控制流和时间优先级边界 |
+| v0.3 | 2026-09-28 | 引入 Spring AI 1.0.0 Ollama Chat/Embedding 适配；补充 JobClaw/PaiAgent/PaiFlow/MemoArk 借鉴矩阵与招聘能力映射 |
+
+## 13. 与 BRD/PRD 的对应关系
 | 要求 | 本文落点 |
 |---|---|
 | FP-1 RAG Pipeline | §4.1、§4.2、§7、§9 |
