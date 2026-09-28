@@ -2,14 +2,14 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v0.2 |
+| 文档版本 | v0.4 |
 | 日期 | 2026-09-28 |
-| 上游文档 | [BRD v0.4](./BRD-求职Copilot需求文档.md) |
+| 上游文档 | [BRD v0.5](./BRD-求职Copilot需求文档.md) |
 | 产品阶段 | M-1 RAG 已完成，M-2 Agent 规划中 |
-| 文档状态 | 根据当前实现、Spring AI 评估和时间优先级更新 |
+| 文档状态 | 根据当前实现、Spring AI 落地状态和时间优先级更新 |
 | 产品定位 | 面向个人求职准备与投递管理的领域 Copilot |
 
-> 本文将 BRD v0.3 的方向性要求细化为可开发、可验收的产品规格。技术实现以架构设计为准；未在本文明确纳入的需求不进入当前迭代。
+> 本文将 BRD v0.5 的方向性要求细化为可开发、可验收的产品规格。技术实现以架构设计为准；未在本文明确纳入的需求不进入当前迭代。
 
 ## 1. 产品概述
 
@@ -57,7 +57,7 @@ JD / 个人材料导入
 | P0 | FP-2 Agent 对话、知识库检索工具、JD 分析工具 | M-2 优先完成同步最小闭环，自研 ReAct runner |
 | P0 | FP-3 基础 trace 与一个 HITL 审批场景 | M-2 必做，用于体现工程化和安全边界 |
 | P1 | FP-4 长期记忆 | M-2 后置；时间紧张时推迟 |
-| P1 | FP-5 模型配置与基础 AI 框架接入 | M-2 配置化必做；Spring AI 仅在减少适配代码时引入 |
+| P1 | FP-5 模型配置与基础 AI 框架接入 | M-1 已完成 Spring AI 基础适配；M-2 只做配置化，不再引入新框架 |
 | P1 | US-4 投递记录基础 CRUD 工具 | 至少实现一个可演示工具；完整体验后置 |
 | P2 | FP-6/7/8 前端、SSE、完整投递体验、简历要点生成 | 时间充足再做，不作为核心后端闭环前置 |
 
@@ -99,8 +99,10 @@ JD / 个人材料导入
 
 完整 AI 闭环需要以下外部服务：
 
-| AI 接入层 | 当前 M-1 为 JobPilot 自定义 Port + `RestClient` 适配 Ollama/Chroma；M-2 评估 Spring AI | 不把 LangChain4j 作为当前运行时依赖；Spring AI 只负责基础模型/工具协议适配，不接管 Agent 控制流 |
-| MySQL | 元数据、文本、会话、记忆、投递、trace | M-2 前按实际功能接入 |
+| 依赖 | 用途 | 当前状态 |
+|---|---|---|
+| AI 接入层 | 统一 Chat/Embedding/Tool Calling 供应商协议 | M-1 已落地 Spring AI 2.0.1 的 Ollama `ChatModel`/`EmbeddingModel`；业务层只依赖 JobPilot 自定义 Port，不引入 LangChain4j |
+| MySQL | 元数据、文本、会话、记忆、投递、trace | M-1 已接入（Flyway 建表）；是**启动前置**，无库则应用起不来 |
 | Chroma | Chunk 向量存储与相似度检索 | M-1 已接入 |
 | Ollama + `bge-m3` | 本地文本嵌入 | M-1 已接入 |
 | LLM API / Ollama Chat | 对话、分析、生成 | M-2 前配置化 |
@@ -267,7 +269,7 @@ JD 分析结果默认只展示，不自动写入长期记忆或知识库；用�
 #### 技术路线
 
 - 首版使用 JobPilot 自研的最小同步 ReAct runner，控制最大轮次、工具预算、超时、异常回填和终止条件。
-- Spring AI 是候选基础接入层：如果能减少 Chat/Embedding/Tool Calling 的供应商适配代码，可以引入；但不让高层 Agent 抽象接管 JobPilot 的 ReAct、HITL 和 trace。
+- Spring AI 是已落地的基础接入层：负责 Chat/Embedding/Tool Calling 的供应商协议适配；但不让高层 Agent 抽象接管 JobPilot 的 ReAct、HITL 和 trace。
 - 不引入 LangChain4j 作为当前运行时依赖；不直接复制 PaiCLI/PaiSmart 的业务实现。
 - 目标不是自研通用 Agent 框架，而是实现一个**能被面试官追问、范围可控的领域 Agent**。
 
@@ -583,23 +585,24 @@ FP-6/7/8 产品壳在同步闭环稳定后于 M-4 交付
 ```
 
 - JobPilot 自研最小同步 ReAct runner 是 M-2 的默认实现，不把 PaiCLI `agent-kernel` 复用设为前置条件。
-- Spring AI 只作为候选基础 AI 接入层；若引入，业务层仍只依赖 JobPilot 自定义 Port/record，Agent 控制流仍由 JobPilot 控制。
+- Spring AI 已作为基础 AI 接入层落地；业务层仍只依赖 JobPilot 自定义 Port/record，Agent 控制流仍由 JobPilot 控制。
 - SSE 不得成为同步闭环的前置依赖。
 
 ## 12. 待架构设计确认项
 
 以下事项不阻塞本 PRD，但必须在架构设计阶段落定：
 
-1. Spring AI 是否能在不接管 Agent 控制流的前提下减少 Chat/Embedding/Tool Calling 适配代码。
-2. Chroma API 版本、collection 命名、删除/重建索引和一致性策略。
-3. chunk size、overlap、embedding 维度和相似度阈值，以评测集结果决定。
-4. 原始文件目录、文件命名、防路径穿越和备份/恢复策略。
-5. MySQL 表拆分、索引、软删除与 Document/Chunk/VectorEntry 一致性。
-6. Redis 是否用于会话、幂等键或缓存，避免无明确收益的引入。
-7. 固定开发用户身份如何在未来切换到 JWT，而不改业务服务接口。
-8. SSE 断线恢复、重复事件和已生成内容的持久化策略。
-9. trace 中输入/输出的脱敏规则和日志保留周期。
-10. 前端具体技术栈；BRD 建议 Vue 3 + Element Plus，但不作为本 PRD 的实现硬约束。
+1. Chroma API 版本、collection 命名、删除/重建索引和一致性策略。
+2. chunk size、overlap、embedding 维度和相似度阈值，以评测集结果决定。
+3. 原始文件目录、文件命名、防路径穿越和备份/恢复策略。
+4. MySQL 表拆分、索引、软删除与 Document/Chunk/VectorEntry 一致性。
+5. Redis 是否用于会话、幂等键或缓存，避免无明确收益的引入。
+6. 固定开发用户身份如何在未来切换到 JWT，而不改业务服务接口。
+7. SSE 断线恢复、重复事件和已生成内容的持久化策略。
+8. trace 中输入/输出的脱敏规则和日志保留周期。
+9. 前端具体技术栈；BRD 建议 Vue 3 + Element Plus，但不作为本 PRD 的实现硬约束。
+
+> 原第 1 项「Spring AI 是否能减少 Chat/Embedding/Tool Calling 适配代码」已由 M-1 落地回答：能，且业务层 Port 隔离未破。
 
 ## 13. BRD 可追溯性
 
@@ -634,3 +637,4 @@ FP-6/7/8 产品壳在同步闭环稳定后于 M-4 交付
 | v0.1 | 2026-09-26 | 基于 BRD v0.3 完成 P0/P1 功能、流程、状态、异常、验收和架构前置决策细化 |
 | v0.2 | 2026-09-28 | 根据 M-1 实际实现更新；明确 Spring AI 为候选接入层、自研 Agent 控制流、时间紧张时的 P0/P1/P2 优先级 |
 | v0.3 | 2026-09-28 | Spring AI Ollama 基础适配已引入；根据招聘分析强化 Java 后端、AI 应用和 Agent 能力验收 |
+| v0.4 | 2026-09-28 | 技术基线同步到 Spring Boot 4.0 / Spring AI 2.0.1 / MyBatis-Plus 3.5.x；Spring AI 由「候选」改为「已落地」；§3.3 前置条件表补表头并标注 MySQL 为启动前置；§12 移除已由 M-1 回答的 Spring AI 待决项 |

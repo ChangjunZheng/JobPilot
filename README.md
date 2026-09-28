@@ -5,15 +5,15 @@ JobPilot 是面向求职流程的 Copilot。当前仓库包含 Spring Boot 后�
 ## 技术栈
 
 - Java 21
-- Spring Boot 3.5
+- Spring Boot 4.0
 - Maven
 - MyBatis-Plus + MySQL
 - Redis
-- LangChain4j（当前仅保留 AI 适配边界）
+- Spring AI 2.0（仅 AI 适配边界）+ Ollama + Chroma
 
 ## 启动
 
-当前骨架默认不连接 MySQL、Redis 或外部 LLM 服务，可以直接启动：
+需要先准备好 MySQL 并复制 `application-local.yml`（见下节）。没有数据库时应用无法启动：MyBatis-Plus 的 mapper 扫描依赖 `SqlSessionFactory`。
 
 ```bash
 mvn spring-boot:run
@@ -43,13 +43,13 @@ run-java21.cmd spring-boot:run
 
 需要连接 MySQL/Redis 时，将 `src/main/resources/application-local.yml.example` 复制为 `application-local.yml`，再通过环境变量填写连接信息。`application-local.yml` 不应提交到仓库。
 
-当前 `application.yml` 为了让骨架在无外部基础设施时可启动，暂时排除了数据库、Flyway 和 Redis 自动配置。接入第一个业务迁移前，应移除对应排除项并完成本地服务配置。
+`application.yml` 默认 profile 为 `local`，数据库与 Redis 连接信息全部来自 `application-local.yml`，没有该文件时应用启动会失败。
 
 ## 目录约定
 
 ```text
 src/main/java/com/jobpilot/
-├── ai/          # LangChain4j 门面与 AI 适配
+├── ai/          # Spring AI 门面与 AI 适配
 ├── common/      # 通用响应、异常和基础设施
 ├── config/      # Spring 配置
 ├── controller/  # HTTP API

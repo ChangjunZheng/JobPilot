@@ -2,11 +2,11 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v0.4 |
+| 版本 | v0.5 |
 | 日期 | 2026-09-28 |
-| 状态 | v0.3 评审稿 → 根据 M-1 实际实现与求职优先级更新为 v0.4 |
+| 状态 | v0.4 评审稿 → 技术基线与 M-1 落地状态同步（Spring Boot 4.0 / Spring AI 2.0.1）后更新为 v0.5 |
 | 决策来源 | 需求访谈（本人 + AI 教练）：单用户 dogfooding / 轻量后端 / RAG + Agent 能力证明 / 时间盒开发 |
-| 评审拍板（当前） | ① 保持 JobPilot 独立，不直接复用 PaiCLI/PaiSmart 业务代码 ② M-1 先完成 RAG 闭环 ③ M-2 自研最小同步 ReAct runner ④ Spring AI 作为候选基础 AI 接入层，是否引入以协议适配收益为准 ⑤ 时间紧张时优先后端可演示闭环，不先做完整前端和登录壳 |
+| 评审拍板（当前） | ① 保持 JobPilot 独立，不直接复用 PaiCLI/PaiSmart 业务代码 ② M-1 先完成 RAG 闭环 ③ M-2 自研最小同步 ReAct runner ④ Spring AI 2.0.1 已作为基础 AI 接入层落地（Ollama Chat/Embedding），但不得接管 JobPilot 的预算、HITL、trace 和领域工具控制流 ⑤ 时间紧张时优先后端可演示闭环，不先做完整前端和登录壳 |
 | 命名 | JobPilot 为暂名，可改；建议中英文双名 |
 | ID 规则 | 场景 US-x；功能 FP-x；非功能 NFR-x；风险 R-x；里程碑 M-x |
 
@@ -55,7 +55,7 @@
 | 级别 | 范围 | 说明 |
 |---|---|---|
 | **P0（AI 闭环）** | **FP-1** 文档导入 → 切块 → 本地嵌入 → Chroma → 检索问答 + 引用；**FP-2** 最小同步 Agent（自研 ReAct runner + `knowledge_search` / JD 分析工具）；**FP-3** 基础 trace + 一个 HITL 审批场景；**FP-5** 基础模型配置 | 这是简历项目的最低可展示闭环；优先保证能跑、能测、能讲清 |
-| **P1（增强能力）** | **FP-4** 基础长期记忆；投递 CRUD 工具；Spring AI 接入（若能降低供应商适配成本）；同步 API 稳定性优化 | 只在 P0 稳定后实现，不让框架迁移阻塞核心闭环 |
+| **P1（增强能力）** | **FP-4** 基础长期记忆；投递 CRUD 工具；同步 API 稳定性优化 | 只在 P0 稳定后实现，不让框架迁移阻塞核心闭环 |
 | **P2（产品壳/扩展）** | SSE、对话页、知识库管理页、JWT、多模型路由、完整投递体验、复杂记忆治理 | 时间紧张时全部后置；保留为演示增强项 |
 
 ### 5.1 P0 实现依赖顺序
@@ -117,7 +117,7 @@ FP-5 LLM 配置（贯穿，无前置依赖，day1 即可用）
 |---|---|---|---|
 | M-0 | 需求与架构校准 | 技术路线、核心范围、求职优先级明确 | 不再把 LangChain4j 或 agent-kernel 写成既定前置依赖 |
 | M-1 | RAG 闭环 | 导入 → 嵌入 → Chroma → 引用问答；完成评测集初跑 | 当前已完成最小 API 闭环，继续补评测集与已知技术债 |
-| M-2 | Agent 最小闭环 | 自研同步 ReAct runner + `knowledge_search` + 一个 JD 分析工具 + trace + 一个 HITL | Spring AI 只在能降低协议适配成本时引入；不阻塞核心 loop |
+| M-2 | Agent 最小闭环 | 自研同步 ReAct runner + `knowledge_search` + 一个 JD 分析工具 + trace + 一个 HITL | Spring AI 基础模型适配已于 M-1 落地，M-2 不再引入新框架；不阻塞核心 loop |
 | M-3 | 求职准备冻结 | 简历话术、项目复盘、demo 脚本、bug 修复 | 不接新产品需求 |
 | M-4 | 产品壳增强 | 可选 SSE、最小前端、投递体验 | 仅在 P0/P1 后端稳定且时间充足时实现 |
 
@@ -125,8 +125,8 @@ FP-5 LLM 配置（贯穿，无前置依赖，day1 即可用）
 
 ## 10. 技术基线（约束级，细化留给架构设计）
 
-- 后端：Java 21 + Spring Boot 3.x + MyBatis-Plus + MySQL + Redis；
-- AI：M-1 使用 JobPilot 自定义 Port + `RestClient` 适配 Ollama/Chroma；M-2 优先自研最小同步 ReAct runner。Spring AI 作为候选基础 AI 接入层，用于统一 Chat/Embedding/Tool Calling 等供应商协议，但不得接管 JobPilot 的预算、HITL、trace 和领域工具控制流；不引入 LangChain4j 作为当前运行时依赖；
+- 后端：Java 21 + Spring Boot 4.0 + MyBatis-Plus 3.5.x + MySQL + Redis；
+- AI：M-1 已落地 Spring AI 2.0.1 的 Ollama `ChatModel` / `EmbeddingModel`（业务层仍只依赖 JobPilot 自定义 Port），Chroma 保留自定义 `RestClient` 适配；M-2 优先自研最小同步 ReAct runner。Spring AI 用于统一 Chat/Embedding/Tool Calling 等供应商协议，但不得接管 JobPilot 的预算、HITL、trace 和领域工具控制流；不引入 LangChain4j 作为当前运行时依赖；
 - 嵌入：**本地 Ollama bge-m3（零 API 成本）**，与 Chroma 0.6.x REST 适配；LLM API 仅用于对话/生成；
 - 向量库：**Chroma（锁定）**，本地文档量级远够用；
 - 流式：SSE 后置，先完成同步闭环；
@@ -193,7 +193,7 @@ Conversation (N) ──── (1) JobDescription? (可选关联)
 | R-7 | 检索质量不达预期 | 中 | 评测集驱动调优；若连续调优 2 周 P@5 < 70%，先优化切分/阈值/降级，不提前更换向量库 |
 | R-8 | M-2 Agent 核心 loop 延期 | 中 | 先保留 ≤300 行的小型同步 ReAct runner；若仍超时，砍长期记忆和复杂工具，保留基础对话 + knowledge_search |
 | R-9 | 与 JRAG 简历口径混淆 | 低 | 明确区分：JobPilot = 原创自研 0→1；JRAG = 源码研读/复刻；PaiCLI = 通用引擎 |
-| R-10 | AI 框架更迭焦虑 | 低 | 项目是常量、框架是变量；当前只评估 Spring AI，不为简历关键词迁移框架 |
+| R-10 | AI 框架更迭焦虑 | 低 | 项目是常量、框架是变量；已落地 Spring AI 2.0.1，后续框架升级由真实适配收益驱动，不为简历关键词迁移 |
 | R-11 | 本地环境损坏 | 低 | NFR-4 每日备份；原始文档 + Chroma 目录 + MySQL 三件套可重建 |
 
 ## 13. 附录
@@ -204,7 +204,7 @@ Conversation (N) ──── (1) JobDescription? (可选关联)
 
 - 面试准备能力：能脱稿讲清自研 ReAct runner、工具协议、HITL/trace 和 RAG 检索取舍；
 - 检索策略调优过程（评测集驱动）：能脱稿讲 ≥ 15 分钟；
-- 框架选择：能解释为什么评估 Spring AI、为什么不把高层 Agent 控制流交给框架；
+- 框架选择：能解释为什么选 Spring AI 而非 LangChain4j 或高层 Agent 框架，以及为什么 Agent 控制流不交给框架；
 - 整体叙事：「通用引擎（PaiCLI）→ 领域落地（JobPilot）」能讲清
 
 ### 13.2 前端交互概要（指导 M-4 PRD 细化）
@@ -245,3 +245,11 @@ Conversation (N) ──── (1) JobDescription? (可选关联)
 | §12 风险表增加回退方案与影响量化 | 可操作 |
 | 原成功标准 4 移至 §13.1 附录 | 区分产品目标与个人成长目标 |
 | 新增 §13.2~13.3 前端概要/导入规则 | 指导后续 PRD 细化方向 |
+
+### 13.5 v0.5 变更记录
+
+| 变更 | 说明 |
+|---|---|
+| 技术基线同步 | Spring Boot 3.x → 4.0；MyBatis-Plus → 3.5.x；Spring AI 1.0.0 → 2.0.1 |
+| Spring AI 定位从「候选」改为「已落地」 | 评审拍板 ④、§5 P1、§9 M-2、§10 技术基线、§12 R-10、§13.1 同步改写；Spring AI 接入不再是 P1 待办 |
+| 新增框架约束 | Spring AI 只负责协议适配；M-2 不再引入新框架，自研 ReAct runner 不受影响 |

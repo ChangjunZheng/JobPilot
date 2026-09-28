@@ -2,13 +2,13 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v0.2 |
+| 文档版本 | v0.4 |
 | 日期 | 2026-09-28 |
-| 上游文档 | [BRD v0.4](./BRD-求职Copilot需求文档.md)、[PRD v0.2](./PRD.md) |
+| 上游文档 | [BRD v0.5](./BRD-求职Copilot需求文档.md)、[PRD v0.4](./PRD.md) |
 | 当前阶段 | M-1 RAG 最小闭环已完成；Spring AI Ollama 基础模型适配已接入；M-2 Agent 规划中 |
-| 技术基线 | Java 21、Spring Boot 3.5.6、MyBatis-Plus、MySQL、Redis、Spring AI 1.0.0、Ollama、Chroma |
+| 技术基线 | Java 21、Spring Boot 4.0.7、MyBatis-Plus 3.5.17、MySQL、Redis、Spring AI 2.0.1、Ollama、Chroma |
 
-> 本文描述 JobPilot 的**当前实现与后续目标架构**。当前 M-1 已使用自定义 Port + `RestClient` 完成最小 RAG 闭环；M-2 的 Spring AI 接入仍是候选方案。`paicli` 与 `PaiSmart` 是参考案例，不是本项目的代码依赖。
+> 本文描述 JobPilot 的**当前实现与后续目标架构**。当前 M-1 已用 Spring AI 的 Ollama `ChatModel` / `EmbeddingModel` 加自定义 `RestClient` Chroma 适配完成最小 RAG 闭环；M-2 的自研同步 ReAct runner 尚未开始。`paicli` 与 `PaiSmart` 是参考案例，不是本项目的代码依赖。
 
 ## 1. 架构决策摘要
 
@@ -18,8 +18,8 @@
 2. 参考 `paicli` 的 ReAct loop、tool call 协议、预算控制和 trace 思路；参考 `PaiSmart` 的 Spring 业务工具注册、批量 embedding、检索降级和流式生成状态管理；参考 `JobClaw` 的 provider/channel/agent/plugin 解耦边界、参考 `PaiAgent` 的 Spring AI + 执行引擎分层、参考 `MemoArk` 的策略接口与用户隔离建模。
 3. 当前不直接提取完整 `paicli.Agent`、`ToolRegistry` 或 `PaiSmart` 的业务服务。它们分别绑定 CLI 运行时和既有业务基础设施，直接复用会把不需要的复杂度带入 JobPilot。
 4. JobPilot 首版 Agent 在本项目内实现一个小型同步 ReAct runner。至少完成一次真实闭环后，再依据实际重复代码决定是否提取独立 `agent-kernel`。
-5. **AI 框架分层决策**：基础模型/Embedding/Tool Calling 协议优先评估 Spring AI；Agent 的 ReAct 控制流、预算、HITL、trace 和领域工具执行由 JobPilot 自己控制。高层框架 Agent 不得接管这些产品策略。
-6. 当前 M-1 已使用 Spring AI 1.0.0 的 Ollama `ChatModel` / `EmbeddingModel` 作为基础模型适配，业务层仍只依赖 JobPilot 自定义 Port；Chroma 保留自定义 `RestClient` 适配，以掌控 UUID、metadata、距离转换、启动自检和降级策略。`pom.xml` 不再保留 LangChain4j 依赖。
+5. **AI 框架分层决策**：基础模型/Embedding/Tool Calling 协议由 Spring AI 承担（M-1 已落地）；Agent 的 ReAct 控制流、预算、HITL、trace 和领域工具执行由 JobPilot 自己控制。高层框架 Agent 不得接管这些产品策略。
+6. 当前 M-1 已使用 Spring AI 2.0.1 的 Ollama `ChatModel` / `EmbeddingModel` 作为基础模型适配，业务层仍只依赖 JobPilot 自定义 Port；Chroma 保留自定义 `RestClient` 适配，以掌控 UUID、metadata、距离转换、启动自检和降级策略。`pom.xml` 不再保留 LangChain4j 依赖。
 7. **不引入 LangChain4j 作为当前运行时依赖**。只有在 Spring AI 无法满足适配需求或未来出现明确的多 provider/复杂协议收益时，才重新评估；框架选择不能为了简历关键词而引入。
 8. RAG 锁定 `Ollama bge-m3 + Chroma`：MySQL 保存可查询元数据、Chunk 原文和引用定位，Chroma 保存向量。
 9. 同步 Agent 闭环优先于 SSE；JWT、WebSocket、多 Agent 编排和完整前端不作为 M-1/M-2 核心闭环的前置条件。
@@ -34,11 +34,11 @@
 | 一开始建设独立 `agent-kernel` 仓库 | 尚未验证 JobPilot 需要的最小公共能力，提前抽象会固化错误边界 |
 | 一开始建设全量 `ai-port/adapter` 层级 | BRD 已明确收敛到 1~2 个 AI 门面，避免个人项目过度设计 |
 
-## 1.3 求职项目时间优先级
+### 1.3 求职项目时间优先级
 
 本项目的直接目标是形成可在实习面试中演示、解释和追问的后端项目。时间紧张时按以下优先级执行：
 
-### 必须完成
+#### 必须完成
 
 1. M-1 RAG：导入、切分、Embedding、Chroma、MySQL 引用、向量检索、关键词降级；
 2. 20 条固定评测集，记录 P@5、拒答正确性和至少一个失败案例；
@@ -48,7 +48,7 @@
 6. 基础 trace：模型、轮次、工具顺序、耗时、状态；
 7. README、架构决策记录和可复现启动命令。
 
-### 可以后置
+#### 可以后置
 
 - SSE、WebSocket、完整前端和 JWT；
 - 多 Agent 计划/执行/审查；
@@ -59,11 +59,11 @@
 
 > 判断标准：每个新增能力都要回答“能否增加可验证的面试素材，且不会阻塞 P0 闭环”。如果不能，进入 backlog。
 
-## 1.4 AI 框架决策：Spring AI 与自研控制流
+### 1.4 AI 框架决策：Spring AI 与自研控制流
 
 | 层次 | 决策 | 原因 |
 |---|---|---|
-| Chat/Embedding/Tool Calling 协议适配 | Spring AI 1.0.0 的 `ChatModel` / `EmbeddingModel` | 与 Spring Boot 生态衔接自然，减少供应商协议样板代码；业务层通过自定义 Port 隔离 |
+| Chat/Embedding/Tool Calling 协议适配 | Spring AI 2.0.1 的 `ChatModel` / `EmbeddingModel` | 与 Spring Boot 生态衔接自然，减少供应商协议样板代码；业务层通过自定义 Port 隔离 |
 | VectorStore / Chroma | JobPilot 自定义 `RestClient` 适配器 | Chroma UUID、过滤 metadata、距离换算、启动自检、降级和一致性是本项目的核心可讲点 |
 | Agent ReAct 控制流 | JobPilot 自研 | 需要掌控轮次、预算、终止条件、工具异常和上下文边界 |
 | HITL / trace / 领域工具 | JobPilot 自研 | 这是求职领域产品规则，通用框架不会替你定义 |
@@ -77,7 +77,7 @@
 - Spring AI 版本升级经过编译、上下文启动和集成测试验证；
 - 有明确的框架使用场景和自动化测试，而不是为了技术栈名称。
 
-## 1.5 参考项目借鉴矩阵
+### 1.5 参考项目借鉴矩阵
 
 | 项目 | 借鉴点 | JobPilot 的取舍 |
 |---|---|---|
@@ -88,7 +88,7 @@
 | PaiCLI | ReAct、工具协议、预算、工具结果边界、trace | 作为 M-2 自研 Agent runner 的主要控制流参考 |
 | MemoArk | `RetrievalService`/`AiClient` 策略接口、用户数据隔离、可替换检索实现 | 借鉴接口隔离和 user_id 纵深防御；不复制完整产品壳 |
 
-## 1.6 招聘目标与项目能力映射
+### 1.6 招聘目标与项目能力映射
 
 | 求职方向 | 项目中必须出现的证据 |
 |---|---|
@@ -189,15 +189,14 @@
                │                 │
 ┌──────────────▼─────────┐ ┌─────▼────────────────┐
 │ AI Facade               │ │ Persistence/Domain   │
-│ RagPipeline             │ │ Document / Chunk     │
-│ AgentRunner             │ │ Conversation/Memory │
-│ AiClient                │ │ Application/Trace    │
+│ KnowledgeRetrieval /    │ │ Document / Chunk     │
+│ RagAskService           │ │ Conversation/Memory │
+│ AgentRunner             │ │ Application/Trace    │
 └──────────────┬──────────┘ └─────┬────────────────┘
                │                  │
 ┌──────────────▼──────────────────▼──────────────┐
 │ Ports / infrastructure adapters                │
-│ Spring AI (M-2 candidate) · Ollama · Chroma    │
-│ MySQL · Redis                                  │
+│ Spring AI · Ollama · Chroma · MySQL · Redis    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -210,7 +209,7 @@
 | `domain` | 业务对象、状态、规则和结果 | Spring/外部 SDK |
 | `ai` | JobPilot 自定义端口、AI record、Agent runner、工具协议 | Controller 细节、数据库表实现 |
 | `ai.port` | Chat/Embedding/VectorStore/Trace 的最小端口 | 具体供应商配置 |
-| `ai.adapter` | Spring AI（若引入）、Ollama、Chroma 等适配 | 求职领域决策 |
+| `ai.adapter` | Spring AI、Ollama、Chroma 等适配 | 求职领域决策 |
 | `knowledge` | 文档导入、抽取、切分、索引和引用 | 通用 Agent 编排 |
 | `mapper` / `persistence` | MySQL 元数据和 Chunk 持久化 | prompt 组装、模型调用 |
 | `config` | Spring Bean、外部服务和 profile 配置 | 业务流程 |
@@ -224,14 +223,15 @@
 
 ```text
 Upload/Text Input
-  → DocumentApplicationService
-  → DocumentParser (.md/.txt/PDF text)
-  → Chunker
+  → DocumentIngestService
+  → ChunkSplitter (.md 按标题分节 / .txt 整篇，超长滑窗 + overlap)
   → Chunk metadata + original text → MySQL
-  → EmbeddingPort → Ollama bge-m3
-  → VectorStorePort → Chroma
+  → EmbeddingPort → OllamaEmbeddingAdapter → Spring AI → Ollama bge-m3
+  → VectorStorePort → ChromaVectorStoreAdapter → Chroma
   → Document status READY
 ```
+
+> PDF 抽取尚未实现（BRD §13.3 列为待评估），当前只支持 Markdown 与纯文本。
 
 约束：
 
@@ -251,13 +251,12 @@ M-1 只实现 Chroma 向量检索的最小闭环。新参考项目中的以下�
 
 ```text
 query + user_id
-  → RagPipeline
-  → query embedding (Ollama)
-  → Chroma top-K
-  → load citation metadata/text from MySQL
-  → relevance threshold
-  → AiClient with bounded context
-  → answer + Citation[] + trace summary
+  → KnowledgeRetrievalService
+  → EmbeddingPort → query embedding (Ollama bge-m3)
+  → VectorStorePort → Chroma top-K (where 过滤 user_id/doc_type)
+  → 相似度阈值截断 → MySQL 回捞 Chunk 原文（只保留 READY 文档）
+  → RagAskService → ChatPort（bounded context，证据编号 [n]）
+  → answer + Citation[] + searchMode/degraded
 ```
 
 如果 Chroma 不可用，RAG pipeline 通过同一检索结果协议调用 MySQL 关键词降级；返回中必须标记 `searchMode=KEYWORD_FALLBACK`。无足够相关结果时直接返回证据不足，不强行调用模型生成确定性答案。
@@ -294,6 +293,8 @@ Agent tool requests write side effect
 
 ### 5.1 Chat model
 
+> M-1 只实现 `ChatPort.complete(String systemPrompt, String userPrompt) → String`（非流式、无工具、无 usage）。下面的 shape 是 M-2 引入工具调用时的目标协议，当前代码里还没有对应类型。
+
 ```text
 ChatRequest
 - messages: List<ChatMessage>
@@ -310,9 +311,11 @@ ChatResponse
 - model: String
 ```
 
-业务层不得接触 Spring AI、供应商 SDK 的 response 或 HTTP JSON；如果 M-2 引入 Spring AI，适配器负责将其转换为 JobPilot 自己的 `ChatResponse`、`ToolCall` 等协议。当前 M-1 尚未引入 Spring AI，使用 `RestClient` 适配器。
+业务层不得接触 Spring AI、供应商 SDK 的 response 或 HTTP JSON；`ai.adapter` 下的适配器负责将其转换为 JobPilot 自己的 record（`ChatPort`/`EmbeddingPort`/`VectorStorePort` 及其入参出参）。M-1 已落地：`OllamaChatAdapter`、`OllamaEmbeddingAdapter` 走 Spring AI 的 `ChatModel`/`EmbeddingModel`，`ChromaVectorStoreAdapter` 保留自定义 `RestClient`。
 
 ### 5.2 Tool protocol
+
+> M-2 目标协议，M-1 尚未实现任何工具类型。
 
 ```text
 ToolDefinition
@@ -345,12 +348,14 @@ ToolExecutionResult
 
 ### 5.3 Retrieval protocol
 
+> M-1 已实现，record 定义见 `com.jobpilot.ai`。
+
 ```text
 RetrievalQuery
 - userId: String
 - text: String
-- topK: int
-- filters: RetrievalFilters
+- topK: int          // <= 0 时回落 jobpilot.rag.top-k
+- docType: String?   // 可选，作为向量库 metadata 过滤条件
 
 RetrievalResult
 - items: List<RetrievedChunk>
@@ -359,22 +364,24 @@ RetrievalResult
 
 RetrievedChunk
 - documentId: String
-- chunkId: String
-- text: String
-- score: double
+- chunkId: String    // 即向量 ID，格式 docId#seq#indexVersion
+- text: String       // 来自 MySQL，事实来源
+- score: double      // 余弦相似度；降级模式为关键词命中数
 - Citation citation
 ```
 
-`Citation` 是用户可见契约，至少包含文档展示名、章节/段落定位、Chunk ID 和引用文本/摘要。
+`Citation` 是用户可见契约，字段为 `documentId`、文档展示名 `documentName`、章节路径 `sectionPath`、`chunkId` 和 `charStart`/`charEnd`（原文绝对码点偏移，定位失败为 `-1`）。
 
 ### 5.4 Embedding protocol
 
+> M-1 已实现（极简形态），见 `EmbeddingPort`。
+
 ```text
-EmbeddingPort.embed(List<String> texts, EmbeddingContext context)
-→ EmbeddingBatchResult(vectors, modelVersion, usage)
+EmbeddingPort.embed(String text) → List<Double>
+EmbeddingPort.dimension() → int
 ```
 
-批量大小、维度和模型版本由配置/适配器决定；知识库和查询 embedding 必须使用兼容模型版本。
+M-1 采用逐条调用的极简形态（见 `EmbeddingPort` javadoc）；批量接口、modelVersion 和 usage 回传等，只有评测集证明收益后才加。知识库写入和查询必须使用同一 embedding 模型版本。
 
 ## 6. Agent Runner 规则
 
@@ -410,7 +417,7 @@ EmbeddingPort.embed(List<String> texts, EmbeddingContext context)
 
 每个 VectorEntry 至少保存：
 
-- 稳定的向量 ID（建议由 `document_id + chunk_id + index_version` 派生）；
+- 稳定的向量 ID（实现为 `docId#seq#indexVersion`，同时是 `kb_chunk` 表主键）；
 - embedding；
 - `user_id`、`document_id`、`chunk_id`、索引版本等 metadata。
 
@@ -436,16 +443,18 @@ M-1 不引入分布式事务。使用可重试状态机和补偿操作：
 | Ollama | 生成文档/查询 embedding | 新索引失败；提示嵌入服务离线；允许重试 | `EMBEDDING_UNAVAILABLE` |
 | Chroma | 向量写入和检索 | 检索降级为关键词；写入任务失败并可重试 | `VECTOR_STORE_DEGRADED` |
 | LLM API | 对话、JD 分析和生成 | 30 秒超时重试一次；友好错误 | `LLM_TIMEOUT` / `LLM_FAILED` |
-| MySQL | 元数据和业务事实 | 不确认写入成功；阻止依赖数据的操作 | `PERSISTENCE_UNAVAILABLE` |
+| MySQL | 元数据和业务事实；Flyway 在此建表 | **启动即要求可连接**（MyBatis-Plus 的 mapper 扫描依赖 `SqlSessionFactory`，缺 DataSource 直接启动失败）；运行期写入失败不确认成功 | `PERSISTENCE_UNAVAILABLE` |
 | Redis | 后续缓存/短状态 | 首版不作为核心闭环前置依赖 | `CACHE_UNAVAILABLE`（如启用） |
 
 每个 Agent run 至少记录：`trace_id`、`user_id`、`conversation_id`、模型、开始/结束时间、迭代、工具顺序、耗时、错误和 token usage（供应商提供时）。输入/输出原文的脱敏规则和保留周期在实现前确定，API key 不进入日志。
+
+**Spring Boot 4 的配置约束**：Boot 4 把自动配置类拆到独立 artifact 与包名（`spring-boot-jdbc` / `spring-boot-flyway` / `spring-boot-data-redis`，包名形如 `org.springframework.boot.<tech>.autoconfigure.*`），`spring-boot-autoconfigure` 只剩 core。两个后果：引某个基础设施必须引对应 starter（裸库依赖不会带来自动配置），以及在 `spring.autoconfigure.exclude` 写 Boot 3 时代的旧 FQCN 会被**静默忽略**——只有 conditions report 里的 `Exclusions: None` 能暴露这个问题。
 
 ## 9. 实施顺序
 
 ```text
 M-1: RAG Pipeline
-  DocumentParser → Chunker → EmbeddingPort → Chroma VectorStore → Citation
+  DocumentIngestService → ChunkSplitter → EmbeddingPort → Chroma VectorStore → Citation
 
 M-2: Agent 半区
   AgentRunner → ToolRegistry → knowledge_search / JD analysis / Application CRUD
@@ -479,7 +488,7 @@ M-4: 产品壳
 - 至少一个 HITL 工具能生成待审批草稿且重复审批幂等；
 - trace 能还原一次完整调用链；
 - 一个投递 CRUD 工具可按 `user_id` 工作；
-- Spring AI（若引入）只位于协议适配边界，业务层不依赖其类型。
+- Spring AI（已引入）只位于协议适配边界，业务层不依赖其类型。
 
 ## 10. 明确不做与后续决策
 
@@ -509,15 +518,16 @@ M-4: 产品壳
 
 在此之前，JobPilot 内部小型 runner 是更低风险的选择。
 
-## 12. 文档版本记录
+## 11. 文档版本记录
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v0.1 | 2026-09-26 | M-0 架构设计与参考项目评估 |
 | v0.2 | 2026-09-28 | 根据 M-1 实际代码更新；移除 LangChain4j 既定依赖口径；增加 Spring AI 候选定位、自研 Agent 控制流和时间优先级边界 |
 | v0.3 | 2026-09-28 | 引入 Spring AI 1.0.0 Ollama Chat/Embedding 适配；补充 JobClaw/PaiAgent/PaiFlow/MemoArk 借鉴矩阵与招聘能力映射 |
+| v0.4 | 2026-09-28 | 技术基线升到 Spring Boot 4.0.7 / Spring AI 2.0.1 / MyBatis-Plus 3.5.17；Boot 4 拆分自动配置 artifact 导致裸 `flyway-core` 不再触发迁移，改用 `spring-boot-starter-flyway`；移除 `application.yml` 的自动配置排除列表（`@MapperScan` 硬依赖 DataSource，该机制无法实现「无基础设施可启动」）；MySQL 在 §8 标注为启动前置 |
 
-## 13. 与 BRD/PRD 的对应关系
+## 12. 与 BRD/PRD 的对应关系
 | 要求 | 本文落点 |
 |---|---|
 | FP-1 RAG Pipeline | §4.1、§4.2、§7、§9 |

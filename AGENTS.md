@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 ## 项目
 
-JobPilot 是面向求职流程的个人 Copilot 后端（Java 21 / Spring Boot 3.5 / Maven / MyBatis-Plus + MySQL / Redis / LangChain4j 边界 / Ollama + Chroma）。
+JobPilot 是面向求职流程的个人 Copilot 后端（Java 21 / Spring Boot 4.0 / Maven / MyBatis-Plus + MySQL / Redis / Spring AI 边界 / Ollama + Chroma）。
 
 **当前进度：M-1（RAG 最小闭环）已实现并提交，M-2（Agent runner + 工具 + HITL + trace）未开始。** 仓库根目录 `README.md` 仍停留在骨架阶段的描述，与代码不符；设计与实施计划以 `docs/ARCHITECTURE.md` 为准，实际能力以 `src/main/java` 为准。
 
@@ -28,9 +28,11 @@ run-java21.cmd spring-boot:run
 
 ## 运行时的基础设施开关（重要）
 
-`application.yml` 默认 profile 为 `local`，并**排除了 DataSource、Flyway、Redis 自动配置**，因此只有 `application-local.yml`（gitignored，需从 `application-local.yml.example` 复制）存在时，才会启用 MySQL/Flyway——profile 级属性会覆盖基础配置，`spring.autoconfigure.exclude: []` 就是靠这个机制生效的。
+`application.yml` 默认 profile 为 `local`，MySQL/Redis 连接信息全部放在 `application-local.yml`（gitignored，需从 `application-local.yml.example` 复制）。**没有 local profile 时应用起不来**：`@MapperScan` 需要 `SqlSessionFactory`，没有 DataSource 就报 `Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required`。所以「不接数据库也能启动」不成立，不要依赖。
 
-不接数据库时应用能启动，`/api/v1/health` 可用，但 knowledge 相关接口会失败。RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌入 + `qwen2.5:3b` 生成）、本地 Chroma（`chroma/` 目录，`.gitignore` 已忽略，非 Docker）。
+RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌入 + `qwen2.5:3b` 生成）、本地 Chroma（`chroma/` 目录，`.gitignore` 已忽略，非 Docker）。
+
+**Boot 4 的坑：** 自动配置类被拆到独立 artifact 和包名。`spring-boot-autoconfigure` 现在只剩 core，DataSource/Flyway/Redis 分别在 `spring-boot-jdbc` / `spring-boot-flyway` / `spring-boot-data-redis` 里，包名是 `org.springframework.boot.<tech>.autoconfigure.*`。所以引 Flyway 必须用 `spring-boot-starter-flyway`——只引裸 `flyway-core` 时自动配置根本不在 classpath 上，Flyway 会静默不执行。同理 `spring.autoconfigure.exclude` 里写旧包名会被静默忽略（日志 conditions report 的 `Exclusions: None` 是唯一线索），别照抄 Boot 3 的 FQCN。
 
 配置全部集中在 `jobpilot.rag.*`（`RagProperties`），端口/适配层只读这里，业务层不感知 Ollama/Chroma。
 
@@ -38,7 +40,7 @@ run-java21.cmd spring-boot:run
 
 ### 端口/适配器边界（`com.jobpilot.ai`）
 
-业务层只依赖 `ChatPort`、`EmbeddingPort`、`VectorStorePort` 和 JobPilot 自定义的 record（`Citation`、`RetrievalQuery/Result`、`RetrievedChunk`、`SearchMode`）。**LangChain4j 与供应商 HTTP/SDK 类型只能出现在 `ai.adapter`**，实现细节（如 Chroma 的 `1 - distance` 换算、Ollama 请求体构造）不得泄漏到 service 层。
+业务层只依赖 `ChatPort`、`EmbeddingPort`、`VectorStorePort` 和 JobPilot 自定义的 record（`Citation`、`RetrievalQuery/Result`、`RetrievedChunk`、`SearchMode`）。**Spring AI 与供应商 HTTP/SDK 类型只能出现在 `ai.adapter`**，实现细节（如 Chroma 的 `1 - distance` 换算、Ollama 请求体构造）不得泄漏到 service 层。
 
 `ai.adapter` 下的三个适配器都通过 `HttpClientConfig` 提供的 `ClientHttpRequestFactory` 构造 RestClient：连接超时 3 秒（为了快速触发降级），读超时 120 秒（容忍本地模型冷启动）。
 
