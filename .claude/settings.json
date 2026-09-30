@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // .tool_response.filePath'); case \"$f\" in *src/main/java/*.java) out=$(bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/check-arch.sh\" 2>&1); rc=$?; if [ $rc -ne 0 ]; then printf 'JobPilot 架构检查未通过，请修复后再继续：\\n%s\\n' \"$out\" >&2; exit 2; fi ;; esac",
+            "timeout": 60,
+            "statusMessage": "跑架构检查 (check-arch.sh)..."
+          }
+        ]
+      }
+    ]
+  }
+}
