@@ -123,4 +123,4 @@ JUnit 5 + Mockito + AssertJ（`spring-boot-starter-test`）；技术栈已升到
 
 ## Git
 
-不自动 commit / push。`docs/学习记录/` 与 `.workbuddy/` 是个人的本地笔记目录，已 gitignore，不要入库。
+不自动 commit / push。`docs/学习/`（`交接/` 放窗口间交接流水，`精华/` 放教学笔记）与 `.workbuddy/` 是个人的本地笔记目录，已 gitignore，不要入库。
