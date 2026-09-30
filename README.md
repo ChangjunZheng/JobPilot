@@ -61,6 +61,20 @@ RAG 链路需要 **MySQL**（Flyway 建表）、**Ollama**（`bge-m3` 嵌入 + `
 
 `application.yml` 默认 profile 为 `local`，数据库与 Redis 连接信息全部来自 `application-local.yml`，没有该文件时应用启动会失败。
 
+## 提交前架构检查
+
+`scripts/check-arch.sh` 把 AGENTS.md 里的架构约束变成可执行检查：Spring AI 类型是否越出 `ai/adapter`、是否引入被禁的参考项目依赖或 Elasticsearch、是否 `printStackTrace`、是否裸 `new Thread`。
+
+仓库带了配套的 pre-commit hook，但 `core.hooksPath` 是**本地 git 配置、不在版本控制里**，所以每个 clone 要手动启用一次：
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+启用后，暂存区含 `src/main/java/**/*.java` 的提交会先跑检查，不通过即阻止提交（确认无误可用 `git commit --no-verify` 绕过）；纯文档提交不触发检查。手动运行的完整用法与规则细节见 [AGENTS.md](./AGENTS.md)。
+
+依赖 `rg`（必需）和 `ast-grep`（可选，缺失时跳过 AST 类规则）。
+
 ## 目录约定
 
 ```text

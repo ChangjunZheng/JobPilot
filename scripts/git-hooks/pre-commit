@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # git pre-commit hook：提交前跑架构约束检查。
 #
-# 由 core.hooksPath 指向本目录（见 README 或 AGENTS.md）。
+# 由 core.hooksPath 指向本目录；启用方式见 README「提交前架构检查」。
 # 绕过方式：git commit --no-verify
 #
 # 设计原则：

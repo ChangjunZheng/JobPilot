@@ -20,6 +20,8 @@ bash scripts/check-arch.sh                # 架构约束检查（见下）
 
 `scripts/check-arch.sh` 把本文「端口/适配器边界」「架构约束」里的约定变成可执行检查（Spring AI 类型是否越界、是否引入被禁依赖、是否 `printStackTrace`、是否裸 `new Thread`）。退出码 0 = 全部通过。**改动 `ai/` 或 `service/` 层后、提交前应跑一次。**
 
+仓库同时带了一个 pre-commit hook，但它的启用方式是本地 git 配置（`core.hooksPath`，每个 clone 手动执行一次，见 README「提交前架构检查」），**不在版本控制里，别假定它已生效**——要保证检查跑到，显式调脚本。
+
 - 单条规则：`bash scripts/check-arch.sh boundary`（可选 `deps` / `quality`）
 - 依赖：`rg` 必需；`ast-grep` 可选（缺了会跳过 AST 类规则，不会报错）
 
