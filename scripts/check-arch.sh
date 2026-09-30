@@ -19,14 +19,8 @@ FAILED=0
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# rg 在 PATH 里未必可见（winget 装的），兜底找常见位置
 RG="$(command -v rg 2>/dev/null || true)"
-[ -z "$RG" ] && [ -x "C:/Users/24839/AppData/Local/Microsoft/WinGet/Packages/BurntSushi.ripgrep.MSVC_Microsoft.Winget.Source_8wekyb3d8bbwe/ripgrep-15.1.0-x86_64-pc-windows-msvc/rg.exe" ] && \
-  RG="C:/Users/24839/AppData/Local/Microsoft/WinGet/Packages/BurntSushi.ripgrep.MSVC_Microsoft.Winget.Source_8wekyb3d8bbwe/ripgrep-15.1.0-x86_64-pc-windows-msvc/rg.exe"
-
 AG="$(command -v ast-grep 2>/dev/null || true)"
-[ -z "$AG" ] && [ -x "D:/Workspace/DevTools/utils/cli-tools/ast-grep.exe" ] && \
-  AG="D:/Workspace/DevTools/utils/cli-tools/ast-grep.exe"
 
 if [ -z "$RG" ]; then
   echo "错误：找不到 rg。装法：winget install BurntSushi.ripgrep.MSVC" >&2
