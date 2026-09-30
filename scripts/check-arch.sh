@@ -17,8 +17,6 @@ SRC="$ROOT/src/main/java"
 ONLY="${1:-}"
 FAILED=0
 
-have() { command -v "$1" >/dev/null 2>&1; }
-
 RG="$(command -v rg 2>/dev/null || true)"
 AG="$(command -v ast-grep 2>/dev/null || true)"
 
