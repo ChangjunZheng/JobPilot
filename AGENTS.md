@@ -15,7 +15,15 @@ mvn test                                  # 全部测试
 mvn test -Dtest=ChunkSplitterTest         # 单个测试类
 mvn test -Dtest=ChunkSplitterTest#plainTextSplitsBySizeWithOverlapOnLongLines   # 单个用例
 mvn spring-boot:run                       # 启动
+bash scripts/check-arch.sh                # 架构约束检查（见下）
 ```
+
+`scripts/check-arch.sh` 把本文「端口/适配器边界」「架构约束」里的约定变成可执行检查（Spring AI 类型是否越界、是否引入被禁依赖、是否 `printStackTrace`、是否裸 `new Thread`）。退出码 0 = 全部通过。**改动 `ai/` 或 `service/` 层后、提交前应跑一次。**
+
+- 单条规则：`bash scripts/check-arch.sh boundary`（可选 `deps` / `quality`）
+- 依赖：`rg` 必需；`ast-grep` 可选（缺了会跳过 AST 类规则，不会报错）
+
+> **实现注记**：查 import 路径用 `rg` 而非 ast-grep——Java 的 import 是嵌套 `scoped_identifier`，ast-grep 的 `$$$` 不匹配路径段（实测：`import org.springframework.ai.$$$;` 返回 0 行，而 `rg` 能查到）。ast-grep 只用在能发挥 AST 优势处（如区分代码里的 `new Thread` 与注释/字符串里的）。
 
 本机默认 JDK 不是 21 时用根目录包装脚本（只为当前 Maven 进程设置 `JAVA_HOME`，默认 `D:\develop\Java\jdk-21`，不修改系统环境变量）：
 
@@ -24,7 +32,13 @@ run-java21.cmd test
 run-java21.cmd spring-boot:run
 ```
 
-测试全部基于 Mockito mock（mapper/port 都 mock 掉），不依赖 MySQL、Chroma 或 Ollama，可直接跑。
+**`mvn test` 需要可用的 MySQL**，不是「无基础设施也能跑」：`JobPilotApplicationTests` 是全量 `@SpringBootTest`，会启动完整上下文（Flyway 迁移 + 真实 DataSource），数据库连不上直接 BUILD FAILURE。只 mock 不依赖基础设施的是 `ChunkSplitterTest` / `DocumentIngestServiceTest` / `KnowledgeRetrievalServiceTest` 三个类，可以单独跑：
+
+```bash
+mvn test -Dtest=KnowledgeRetrievalServiceTest   # 不需要 MySQL / Chroma / Ollama
+```
+
+三个单元的 mock 约定：mapper 与 port（`EmbeddingPort` / `VectorStorePort` / `ChatPort`）全部 mock 掉。`DocumentIngestServiceTest` 用 `doAnswer` 模拟 MyBatis-Plus 的 `ASSIGN_UUID` 补主键，新增依赖主键生成的用例需保持这个 stub。构造 `RagProperties` 用全参构造器（11 个字段）。
 
 ## 运行时的基础设施开关（重要）
 
@@ -36,13 +50,25 @@ RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌�
 
 配置全部集中在 `jobpilot.rag.*`（`RagProperties`），端口/适配层只读这里，业务层不感知 Ollama/Chroma。
 
+**`application.yml` 里的 `jobpilot.ai.*`（`chat-model`、`max-iterations`）目前没有任何 `@ConfigurationProperties` 绑定它**——全项目只有 `RagProperties` 一个绑定类，这两个键是给 M-2 Agent 预留的，现在是死配置。改配置时别以为改它能影响运行行为。
+
+## API
+
+- `GET /api/v1/health`、`GET /actuator/health`（exposure 仅 `health,info`，`show-details: never`）
+- `POST /api/v1/knowledge/documents` 导入并**同步**完成索引，返回 `status` + `errorMessage`
+- `GET /api/v1/knowledge/documents/{id}` 索引状态查询（导入成功只代表任务创建，状态必须可查）
+- `POST /api/v1/knowledge/search` 纯检索，响应带 `searchMode` / `degraded`
+- `POST /api/v1/knowledge/ask` 引用问答，响应带 `answer` + `citations` + `searchMode` / `degraded`
+
+`userId` 一律由请求体传入（M-1 无鉴权）；`docType` 不传时按文件名后缀猜（`.md`/`.markdown` → `MARKDOWN`，否则 `PLAIN_TEXT`）。**空白 content 不是 400**，而是按 PRD-FP-1.1 落成 `FAILED` 文档。
+
 ## 架构要点
 
 ### 端口/适配器边界（`com.jobpilot.ai`）
 
 业务层只依赖 `ChatPort`、`EmbeddingPort`、`VectorStorePort` 和 JobPilot 自定义的 record（`Citation`、`RetrievalQuery/Result`、`RetrievedChunk`、`SearchMode`）。**Spring AI 与供应商 HTTP/SDK 类型只能出现在 `ai.adapter`**，实现细节（如 Chroma 的 `1 - distance` 换算、Ollama 请求体构造）不得泄漏到 service 层。
 
-`ai.adapter` 下的三个适配器都通过 `HttpClientConfig` 提供的 `ClientHttpRequestFactory` 构造 RestClient：连接超时 3 秒（为了快速触发降级），读超时 120 秒（容忍本地模型冷启动）。
+三个适配器的实现方式**不同**，别当成同一套写法：`OllamaChatAdapter` / `OllamaEmbeddingAdapter` 包装 Spring AI 的 `ChatModel` / `EmbeddingModel`（不自己发 HTTP），只有 `ChromaVectorStoreAdapter` 用 `HttpClientConfig` 提供的 `ClientHttpRequestFactory` 构造 RestClient（连接超时 3 秒以便快速触发降级，读超时 120 秒容忍本地模型冷启动）。Chroma 之所以不用 Spring AI 的 VectorStore 抽象，是因为 UUID、metadata 过滤、距离换算和启动自检需要自己掌控（ARCHITECTURE.md §1.4）。
 
 ### 导入链路（`knowledge.DocumentIngestService`）
 
@@ -62,6 +88,16 @@ query 嵌入 → Chroma top-K（where 过滤 `user_id` / 可选 `doc_type`）→
 
 证据为空时**直接拒答，不调用 LLM**（有无降级两种不同话术）。有证据时：引用列表由服务端从命中的 Chunk 组装，模型只负责正文，prompt 里带编号的 `[n]` 证据块——目的是杜绝模型虚构文档名。
 
+### 启动自检（`knowledge.ChromaStartupCheck`）
+
+`ApplicationRunner`（不能用 `@PostConstruct`，它要调 `VectorStorePort` 和 `EmbeddingPort` 两个 Bean）。三类失败语义**故意不同**，改这里前先想清楚属于哪类：
+
+- **集合不存在** → 永久性配置错误，抛异常**阻断启动**（避免应用长期以「看似正常」的姿态跑在降级模式）；
+- **向量库不可达** → 临时故障，仅告警并保留关键词降级能力；
+- **维度不一致** → 换过 embedding 模型但没重建索引，永久性错误，同样**阻断启动**。
+
+未配置 `chroma-collection-id` 时只告警不报错（首次运行尚未建集合属于正常）。
+
 ### 其他约定
 
 - `user_id` 从 M-1 day1 起贯穿导入、Chunk、检索、删除全链路。当前接口无鉴权，`userId` 由请求体传入（`KnowledgeController` 注释已标注 M-2/M-4 要由服务端覆盖而非信任入参）。
@@ -71,6 +107,8 @@ query 嵌入 → Chroma top-K（where 过滤 `user_id` / 可选 `doc_type`）→
 
 ## 架构约束（来自 `docs/ARCHITECTURE.md`，改动前先读）
 
+> 其中前两条已由 `scripts/check-arch.sh` 机械检查（`no-reference-imports` / `no-elasticsearch`），以及 `ai/` 层的 Spring AI 边界（`spring-ai-boundary`）。**改完代码跑一次这个脚本**，比人工核对可靠。
+
 - 不把参考项目 `paicli` / `PaiSmart` 加为 Maven、submodule 或源码依赖，也不复制其 `Agent` / `ToolRegistry` / `AgentOrchestrator`。
 - 不引入 Elasticsearch 替代 Chroma；M-2 前不实现 SSE、WebSocket、JWT、完整前端。
 - 不提前创建空 port/adapter 类；只在真正实现某能力时创建对应类型。
@@ -79,7 +117,7 @@ query 嵌入 → Chroma top-K（where 过滤 `user_id` / 可选 `doc_type`）→
 
 ## 测试约定
 
-JUnit 5 + Mockito + AssertJ（`spring-boot-starter-test`）。`DocumentIngestServiceTest` 用 `doAnswer` 模拟 MyBatis-Plus 的 `ASSIGN_UUID` 补主键——新增依赖主键生成的用例需保持这个 stub。构造 `RagProperties` 用全参构造器（11 个字段，参数顺序见 record 定义）。
+JUnit 5 + Mockito + AssertJ（`spring-boot-starter-test`）；技术栈已升到 Boot 4.0.7，测试 starter 为 `spring-boot-starter-webmvc-test`，测试侧自动配置注解是 `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`（**不是** Boot 3 的 `org.springframework.boot.test.autoconfigure.web.servlet.*`）。mock 约定见上文「常用命令」。
 
 ## Git
 

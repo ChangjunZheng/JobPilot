@@ -1,6 +1,8 @@
 # JobPilot
 
-JobPilot 是面向求职流程的 Copilot。当前仓库包含 Spring Boot 后端骨架，业务能力按 BRD 中的 FP-1 → FP-2 → FP-3/4 顺序逐步实现。
+JobPilot 是面向求职流程的 Copilot 后端。当前已实现 **M-1：RAG 最小闭环**（文档导入 → 切分 → 嵌入 → 向量检索 → 引用问答 → 关键词降级）；M-2（Agent runner + 工具 + HITL + trace）尚未开始。
+
+设计与实施计划见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)；面向 AI 编码工具的仓库约定见 [AGENTS.md](./AGENTS.md)。
 
 ## 技术栈
 
@@ -25,6 +27,12 @@ mvn spring-boot:run
 mvn test
 ```
 
+`mvn test` 会启动完整 Spring 上下文，**需要 MySQL 可用**。只跑不依赖基础设施的单元测试：
+
+```bash
+mvn test -Dtest=KnowledgeRetrievalServiceTest   # 或 ChunkSplitterTest / DocumentIngestServiceTest
+```
+
 如果本机默认 Java 版本不是 21，可使用项目根目录的 `run-java21.cmd`，它只为当前 Maven 进程临时指定 Java 21，不修改系统环境变量：
 
 ```cmd
@@ -32,12 +40,20 @@ run-java21.cmd test
 run-java21.cmd spring-boot:run
 ```
 
-脚本默认使用 `D:\\develop\\Java\\jdk-21`。如果本机安装路径不同，修改脚本中的 `JAVA_HOME` 即可。
+脚本默认使用 `D:\develop\Java\jdk-21`。如果本机安装路径不同，修改脚本中的 `JAVA_HOME` 即可。
 
 ## API
 
-- `GET /api/v1/health`：业务 API 健康检查
-- `GET /actuator/health`：Spring Boot 健康检查
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/health` | 业务 API 健康检查 |
+| GET | `/actuator/health` | Spring Boot 健康检查 |
+| POST | `/api/v1/knowledge/documents` | 导入文档并同步完成索引（返回 `status` / `errorMessage`） |
+| GET | `/api/v1/knowledge/documents/{id}` | 查询文档索引状态 |
+| POST | `/api/v1/knowledge/search` | 纯检索（响应含 `searchMode` / `degraded`） |
+| POST | `/api/v1/knowledge/ask` | 引用问答（回答 + 引用列表） |
+
+RAG 链路需要 **MySQL**（Flyway 建表）、**Ollama**（`bge-m3` 嵌入 + `qwen2.5:3b` 生成）和本地 **Chroma** 同时可用；任一不可用时的行为见 ARCHITECTURE.md §8 的降级表。
 
 ## 本地基础设施配置
 
@@ -49,13 +65,15 @@ run-java21.cmd spring-boot:run
 
 ```text
 src/main/java/com/jobpilot/
-├── ai/          # Spring AI 门面与 AI 适配
-├── common/      # 通用响应、异常和基础设施
-├── config/      # Spring 配置
+├── ai/          # 自定义 port（ChatPort / EmbeddingPort / VectorStorePort）与协议 record
+│   └── adapter/ # Spring AI Ollama 适配 + 自定义 RestClient Chroma 适配
+├── common/      # ApiResponse、ApiException、GlobalExceptionHandler
+├── config/      # RagProperties、HTTP 客户端工厂
 ├── controller/  # HTTP API
-├── domain/      # 领域模型
+├── domain/      # MyBatis-Plus 实体（kb_document / kb_chunk）
+├── knowledge/   # 导入、切分、检索、问答、启动自检
 ├── mapper/      # MyBatis-Plus Mapper
 └── service/     # 应用服务
 ```
 
-业务表、RAG Pipeline、Agent kernel、Chroma、Ollama、SSE 和 JWT 将在 PRD/架构设计完成后按里程碑逐步加入。
+数据库表由 `src/main/resources/db/migration/` 下的 Flyway 脚本创建，应用启动时自动迁移。
