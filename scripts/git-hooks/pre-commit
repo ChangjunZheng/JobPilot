@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# git pre-commit hook：提交前跑架构约束检查。
+#
+# 由 core.hooksPath 指向本目录（见 README 或 AGENTS.md）。
+# 绕过方式：git commit --no-verify
+#
+# 设计原则：
+#   - 只在改动 Java 源码时才跑（纯文档提交零开销）
+#   - 缺依赖时不阻塞提交（换机器后不该因为没装 rg 就提交不了）
+#   - 有违规才阻塞
+
+set -uo pipefail
+
+# Git 以仓库根为 CWD 调用 hook
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+# ── 只在 Java 源码变更时触发 ────────────────────────────────────
+if ! git diff --cached --name-only --diff-filter=ACMR 2>/dev/null \
+     | grep -qE '^src/main/java/.*\.java$'; then
+  exit 0
+fi
+
+# ── 缺脚本则跳过（不阻塞）────────────────────────────────────────
+if [ ! -f "scripts/check-arch.sh" ]; then
+  echo "[pre-commit] 跳过：找不到 scripts/check-arch.sh"
+  exit 0
+fi
+
+bash scripts/check-arch.sh
+status=$?
+
+if [ "$status" -eq 0 ]; then
+  exit 0
+fi
+
+if [ "$status" -eq 2 ]; then
+  echo "[pre-commit] 跳过：check-arch.sh 缺少依赖（rg）"
+  exit 0
+fi
+
+echo ""
+echo "[pre-commit] 架构检查未通过，提交已阻止。"
+echo "             确认无误后可绕过：git commit --no-verify"
+exit 1
