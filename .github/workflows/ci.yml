@@ -45,15 +45,22 @@ jobs:
       - name: Architecture constraints
         run: bash scripts/check-arch.sh
 
-      # JobPilotApplicationTests is a full @SpringBootTest, so the context boots
-      # Flyway against a real MySQL — the service container above is required.
-      # Chroma and Ollama are deliberately absent: the vector store is treated as
-      # unreachable (warn, keep keyword fallback) and the app must still start.
+      # JobPilotApplicationTests is a full @SpringBootTest that boots Flyway
+      # against a real MySQL, so the service container above is required.
+      #
+      # These must be the standard SPRING_DATASOURCE_* property names. The
+      # datasource URL otherwise lives only in application-local.yml, which is
+      # gitignored and therefore absent on CI — a non-standard variable name
+      # would bind to nothing and the context would fail to start.
+      #
+      # Chroma and Ollama are deliberately absent: the vector store is treated
+      # as unreachable (warn, keep keyword fallback) and startup still succeeds.
       - name: Tests
         run: ./mvnw -B test
         env:
-          MYSQL_HOST: 127.0.0.1
-          MYSQL_PORT: '3306'
-          MYSQL_DATABASE: jobpilot
-          MYSQL_USERNAME: root
-          MYSQL_PASSWORD: ci-root
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/jobpilot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: ci-root
+          SPRING_FLYWAY_ENABLED: 'true'
+          JOBPILOT_SECURITY_JWT_SECRET: ci-only-secret-must-be-at-least-32-bytes-long-12345
+          JOBPILOT_SECURITY_JWT_ISSUER: jobpilot
