@@ -1,7 +1,16 @@
 # Copy this file to `application-local.yml` for local infrastructure development.
 # Keep the copied file untracked; do not put passwords or API keys in git.
+#
+# Bring the backing services up with `docker compose up -d --wait` from the repo
+# root (MySQL + Redis). Chroma and Ollama are not in that compose file — run them
+# on the host if you need the full retrieval path; their absence only degrades
+# search to keyword mode, it does not block startup.
 
 spring:
+  autoconfigure:
+    # application.yml excludes infrastructure auto-configuration; clearing the list
+    # here re-enables it. Profile-specific values win over base ones, list included.
+    exclude: []
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:jobpilot}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: ${MYSQL_USERNAME:root}
@@ -13,3 +22,11 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+
+jobpilot:
+  rag:
+    # Chroma 0.6.x REST cannot look a collection up by name, so this UUID must be
+    # pinned: without it the collection id changes on restart and writes/reads
+    # stop matching. Leave blank on a first run (the collection is created on
+    # first import), then copy the returned UUID here — see ARCHITECTURE.md.
+    chroma-collection-id: ${JOBPILOT_RAG_CHROMA_COLLECTION_ID:}

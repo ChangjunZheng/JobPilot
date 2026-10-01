@@ -32,8 +32,8 @@
 ## 2. 开工前（当前阻塞）
 
 - [x] **提交文档改动** —— 已拆为 4 个提交（`8ceaee5` 产品定位 / `f9e1b09` 架构 / `684a308` ROADMAP / `0058c23` 零散注释）
-- [ ] **启动 Redis** —— I-1 的硬依赖（jti 撤销 + 配额计数）。当前 :6379 未监听；已提供 `docker-compose.yml`，可 `docker compose up -d --wait`（注意本机 3306 已被原生 MySQL 占用，见该文件顶部说明）
-- [ ] **补 `application-local.yml` 的 `spring.data.redis` 配置块** —— `application-local.yml.example` 里有、实际文件里没有。Redis 无密码且跑默认端口时能连上，一旦有密码就连不上
+- [x] **启动 Redis** —— 本机用 `D:\Workspace\TechResources\Redis\Redis-8.6.2-Windows-x64-msys2-with-Service`（`redis-server.exe redis.conf`），8.6.2 跑在 6379，`bind 127.0.0.1`、**无 `requirepass`**。已用 `redis-cli client list` 确证应用侧 Lettuce 连接真实建立
+- [x] **补 `application-local.yml` 的 `spring.data.redis` 配置块** —— 已补（含 `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` 占位符）；`.example` 同步补齐 `spring.autoconfigure.exclude` 与 `chroma-collection-id`，两边不再漂移
 - [ ] **确认 I-0 数据库有无真实数据** —— 有则需决定租户键如何回填；只有测试数据则直接清库
 - [ ] （可选）确认 Chroma（:8000）与 Ollama（:11434）是否需启动 —— I-1 编码与单测不依赖，但端到端验证需要
 
