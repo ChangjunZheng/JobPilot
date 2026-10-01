@@ -6,7 +6,11 @@ This file provides guidance to AI coding agents when working with code in this r
 
 JobPilot 是面向求职流程的个人 Copilot 后端（Java 21 / Spring Boot 4.0 / Maven / MyBatis-Plus + MySQL / Redis / Spring AI 边界 / Ollama + Chroma）。
 
-**当前进度：M-1（RAG 最小闭环）已实现并提交，M-2（Agent runner + 工具 + HITL + trace）未开始。** 仓库根目录 `README.md` 仍停留在骨架阶段的描述，与代码不符；设计与实施计划以 `docs/ARCHITECTURE.md` 为准，实际能力以 `src/main/java` 为准。
+**当前进度：I-0（RAG 最小闭环）已实现并提交；I-1（账号 + 租户隔离 + 导入异步化）未开始。** **进度状态的唯一事实来源是 [`docs/ROADMAP.md`](./docs/ROADMAP.md)**——「做了哪些、还有哪些没做、当前阻塞什么、下一步做什么」一律以该文件为准，不要依赖本句或任何文档里的零散描述。本句只作概览，可能滞后。
+
+仓库根目录 `README.md` 仍停留在骨架阶段的描述，与代码不符；设计与实施计划以 `docs/ARCHITECTURE.md` 为准，实际能力以 `src/main/java` 为准。
+
+**产品定位：多租户 SaaS（2026-10-01 起）。** 此前是单用户自用工具，v0.6/v0.5 起转向面向求职者群体的多租户产品。**租户隔离是架构不变量**：任何业务数据读写都必须带租户归属，隔离由数据访问层强制保证（`MyBatis-Plus` 的 `TenantLineInnerInterceptor`），不依赖调用方自觉。功能可以延期，隔离不能妥协——详见 `docs/ARCHITECTURE.md` §1.7。**在 I-1 完成前不对外开放注册。**
 
 ## 常用命令
 
@@ -57,12 +61,12 @@ RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌�
 ## API
 
 - `GET /api/v1/health`、`GET /actuator/health`（exposure 仅 `health,info`，`show-details: never`）
-- `POST /api/v1/knowledge/documents` 导入并**同步**完成索引，返回 `status` + `errorMessage`
-- `GET /api/v1/knowledge/documents/{id}` 索引状态查询（导入成功只代表任务创建，状态必须可查）
+- `POST /api/v1/knowledge/documents` 提交导入。**I-0 当前是同步索引；I-1 改为异步**——落 `PENDING` 后立即返回 `202` + `documentId`，索引在后台任务中完成
+- `GET /api/v1/knowledge/documents/{id}` 索引状态查询（导入成功只代表任务创建，状态必须可查；异步化后这个接口从"辅助"变成"必需"）
 - `POST /api/v1/knowledge/search` 纯检索，响应带 `searchMode` / `degraded`
 - `POST /api/v1/knowledge/ask` 引用问答，响应带 `answer` + `citations` + `searchMode` / `degraded`
 
-`userId` 一律由请求体传入（M-1 无鉴权）；`docType` 不传时按文件名后缀猜（`.md`/`.markdown` → `MARKDOWN`，否则 `PLAIN_TEXT`）。**空白 content 不是 400**，而是按 PRD-FP-1.1 落成 `FAILED` 文档。
+`userId` **在 I-0 中由请求体传入（`@NotBlank String userId`）——这是单用户时期的临时形态，I-1 必须移除**：改为从凭证解析、经 `UserContext` 传递，Controller 签名不再接受 `userId`。这是安全缺陷而非优化项，见 `docs/ARCHITECTURE.md` §1.7。`docType` 不传时按文件名后缀猜（`.md`/`.markdown` → `MARKDOWN`，否则 `PLAIN_TEXT`）。**空白 content 不是 400**，而是按 PRD-FP-1.1 落成 `FAILED` 文档。
 
 ## 架构要点
 
@@ -102,7 +106,7 @@ query 嵌入 → Chroma top-K（where 过滤 `user_id` / 可选 `doc_type`）→
 
 ### 其他约定
 
-- `user_id` 从 M-1 day1 起贯穿导入、Chunk、检索、删除全链路。当前接口无鉴权，`userId` 由请求体传入（`KnowledgeController` 注释已标注 M-2/M-4 要由服务端覆盖而非信任入参）。
+- `user_id` 从 I-0 day1 起贯穿导入、Chunk、检索、删除全链路。**I-1 起不再由请求体传入**：身份从凭证解析，`UserContext` 承载当前租户，数据访问层强制注入租户条件。`KnowledgeController` 中「M-2/M-4 要由服务端覆盖而非信任入参」的注释即指此事，届时注释与实现一并更新。
 - Chroma 0.6.x 的 REST 无法可靠地按名获取已有集合，409（集合已存在）时拿不到 id。因此 **`jobpilot.rag.chroma-collection-id` 必须固定配置**（`application-local.yml` 里的固定 UUID），否则重启后集合 id 变化会导致写不进/查不到。
 - 统一响应为 `ApiResponse<T>`（`success/data/error`），失败走 `GlobalExceptionHandler`；可预期错误用 `ApiException(code, message)`，不要向外泄漏堆栈。
 - 领域/接口注释是中文，保持这个风格。
@@ -111,11 +115,18 @@ query 嵌入 → Chroma top-K（where 过滤 `user_id` / 可选 `doc_type`）→
 
 > 其中前两条已由 `scripts/check-arch.sh` 机械检查（`no-reference-imports` / `no-elasticsearch`），以及 `ai/` 层的 Spring AI 边界（`spring-ai-boundary`）。**改完代码跑一次这个脚本**，比人工核对可靠。
 
-- 不把参考项目 `paicli` / `PaiSmart` 加为 Maven、submodule 或源码依赖，也不复制其 `Agent` / `ToolRegistry` / `AgentOrchestrator`。
-- 不引入 Elasticsearch 替代 Chroma；M-2 前不实现 SSE、WebSocket、JWT、完整前端。
-- 不提前创建空 port/adapter 类；只在真正实现某能力时创建对应类型。
+- 不把参考项目 `paicli` / `PaiSmart` / `tianji` / `hm-dianping` / `sky-take-out` 加为 Maven、submodule 或源码依赖，也不复制其 `Agent` / `ToolRegistry` / `AgentOrchestrator`。借鉴矩阵与各项目取舍见 `docs/ARCHITECTURE.md` §1.5 / §2。
+- 不引入 Elasticsearch 替代向量检索；不引入 Spring Cloud / Nacos / 网关 / Feign / Seata（单集群单体足以覆盖 NFR-7 容量目标）。
+- **降级目标不能是第二个数据库**（易反复踩，详见 `docs/ARCHITECTURE.md` §8.1）。缓存的语义是「缓存挂了回源到库」，库是最后防线而非被绕过对象——「MySQL 挂了用 MongoDB 顶」方向是反的。红线理由：异步副本会让**用户已确认删除的私密材料复活**（NFR-6 / US-7），这比诚实返回「服务不可用」严重得多。降级目标只能是被明确设计为「可缺失 / 可过期」的层（Redis 缓存、关键词检索兜底）；要提高可用性走 MySQL 主从，不走第二套存储。**MongoDB 的引入触发条件是数据形状（字段高度可变、需嵌套查询且 MySQL JSON 列做不顺手），不是可用性。**
+- **不引入消息队列（RabbitMQ / RocketMQ / Kafka / Redis Stream 队列）**。文档索引用「数据库当队列」：`PENDING/PROCESSING/READY/FAILED` 状态机的行就是消息，`SELECT ... FOR UPDATE SKIP LOCKED` 认领。**也不要为了异步化引入 `@Async`**——重启即丢在途任务。详见 `docs/ARCHITECTURE.md` §4.1。
+- **不做独立库或独立 schema 的多租户模式，也不做组织/成员层级权限模型**——共享库共享表 + 租户键注入。
+- **多租户 ≠ RBAC，别混为一谈**（易反复踩，详见 `docs/ARCHITECTURE.md` §1.7.1）。SaaS 是商业模式、RBAC 是授权模型，不在同一维度；多租户（数据隔离）与 RBAC（授权）是两个正交的轴。**本项目租户 = 一个自然人用户，一个租户一个用户，无权限可分配，因此不使用 RBAC。** 三轴是「隔离 / 认证 / 授权」，只做前两个。注意 `tianji` 里那套完整的 RBAC 是**平台运营侧**权限（管理后台谁能改课程），与租户隔离是两回事，看到它别推导出「多租户 = RBAC」。
+- 不提前创建空 port/adapter 类；只在真正实现某能力时创建对应类型。例外：`security` 包与 `UserContext` 属 I-1 必建项，它们承载架构不变量，不算「提前创建」。
+- **可扩展性按「接缝设计」处理，不按「提前抽象」处理。** 一个接缝值得现在留，当且仅当「以后补的成本远高于现在」**且**「触发概率足够高」。据此只做四件事（见 `docs/ARCHITECTURE.md` §14）：① Credential 表用 `(provider, identifier)` 而非 email 唯一键；② 租户键经 `TenantLineHandler` 抽象、不硬编码 `user_id` 过滤；③ 文档类型分发收拢一处且未知类型**显式拒绝**（现散在 `KnowledgeController:143` / `DocumentIngestService` 的 `validate()` / `ChunkSplitter:50`——前两处的白名单挡住了未知类型，但下次往白名单里加格式时 `ChunkSplitter` 会静默按纯文本切）；④ 后台任务用带 `type` 的通用 job 表。
+  反向清单——**不要**以可扩展性为名做：空接口/空 adapter、插件系统或 SPI、通用工作流引擎、为将来拆微服务提前切 Maven 模块。
 - 首版 Agent 是本项目内的小型同步 ReAct runner（默认最多 5 轮、工具调用上限 8 次/run、LLM 超时 30 秒重试 1 次），不提前抽取独立 `agent-kernel`。
-- 会写入长期记忆或知识库的工具必须走 HITL：返回 `PENDING_APPROVAL` 草稿，审批幂等，模型不得有绕过审批的备用工具。
+- **不引入 LangGraph4j**（已评估，见 `docs/ARCHITECTURE.md` §1.4.1）。注意两个容易搞错的事实：它是**库不是框架**，且 **`langgraph4j-core` 不依赖 LangChain4j**（依赖仅 `async-generator`/`jspecify`/`slf4j-api`），官方还支持 Spring AI 2.0.1。暂缓的真实理由是「图编排 + checkpointing」与线性 ReAct 循环不匹配，且其最强能力「运行中 interrupt」恰是当前 HITL 草稿模型刻意规避的问题。触发条件见 §14.4，别用「框架会接管应用」当理由。
+- 会写入长期记忆或知识库的工具必须走 HITL：返回 `PENDING_APPROVAL` 草稿，审批幂等，模型不得有绕过审批的备用工具。**注意 `paicli` 的 HITL 是阻塞式在环审批，与草稿模型不同源，不要按它的控制流照搬。**
 
 ## 测试约定
 
