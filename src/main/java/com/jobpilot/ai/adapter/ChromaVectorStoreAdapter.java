@@ -28,7 +28,7 @@ public class ChromaVectorStoreAdapter implements VectorStorePort {
     private final RestClient restClient;
     private final String collectionName;
     private final String configuredCollectionId;
-    private volatile String collectionId;
+    private volatile String collectionId;  // 懒加载缓存
 
     public ChromaVectorStoreAdapter(RagProperties props, ClientHttpRequestFactory requestFactory) {
         this.restClient = RestClient.builder()
