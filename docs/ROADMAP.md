@@ -11,7 +11,6 @@
 > 更新进度只改本文件；迭代的完整产出与出口条件见 [BRD §9](./BRD-求职Copilot需求文档.md) 与 [PRD §10](./PRD.md)。
 >
 > **看图例**：`[x]` 已完成 · `[ ]` 未开始 · `[~]` 进行中（在行尾注明卡在哪）
-
 ---
 
 ## 1. 总览
@@ -32,13 +31,18 @@
 
 ## 2. 开工前（当前阻塞）
 
-这几件事不做完，I-1 无法开始或无法验证。
-
-- [ ] **提交文档改动** —— 工作区现有约 1277 行未提交（BRD/PRD/ARCHITECTURE/AGENTS + 一处 `ChromaVectorStoreAdapter` 注释）。先单独提交，让 I-1 的代码 diff 干净
-- [ ] **启动 Redis** —— I-1 的硬依赖（jti 撤销 + 配额计数）。当前 :6379 未监听
+- [x] **提交文档改动** —— 已拆为 4 个提交（`8ceaee5` 产品定位 / `f9e1b09` 架构 / `684a308` ROADMAP / `0058c23` 零散注释）
+- [ ] **启动 Redis** —— I-1 的硬依赖（jti 撤销 + 配额计数）。当前 :6379 未监听；已提供 `docker-compose.yml`，可 `docker compose up -d --wait`（注意本机 3306 已被原生 MySQL 占用，见该文件顶部说明）
 - [ ] **补 `application-local.yml` 的 `spring.data.redis` 配置块** —— `application-local.yml.example` 里有、实际文件里没有。Redis 无密码且跑默认端口时能连上，一旦有密码就连不上
 - [ ] **确认 I-0 数据库有无真实数据** —— 有则需决定租户键如何回填；只有测试数据则直接清库
 - [ ] （可选）确认 Chroma（:8000）与 Ollama（:11434）是否需启动 —— I-1 编码与单测不依赖，但端到端验证需要
+
+## 2.1 工程基础设施（本会话新增）
+
+- [x] **CI 门禁** —— `.github/workflows/ci.yml`：MySQL 8.4 service container + JDK 21 + `check-arch.sh` + `mvn test`。**已实测确认只需要 MySQL**，Chroma/Ollama 缺失属预期（向量库不可达 → 告警 + 保留关键词降级，不阻断启动）
+- [x] **本地基础设施编排** —— `docker-compose.yml`：MySQL 8.4 + Redis 7，带 healthcheck 与命名卷
+- [ ] **ADR 目录** —— 把 §1.4.1（LangGraph4j）、§8.1（降级边界）这类决策从架构文档中抽出为独立、只增不改的记录；当前它们混在 ARCHITECTURE 里，随主文档一起被改写
+- [ ] **测试覆盖 I-1 的新约束** —— 越权用例与 ThreadLocal 清理回归（见 §4.1）
 
 ---
 

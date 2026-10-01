@@ -1,0 +1,53 @@
+# Local infrastructure for JobPilot.
+#
+# Brings up MySQL and Redis — the two dependencies the application cannot start
+# without. Chroma and Ollama are deliberately NOT here: Ollama's models are
+# multi-gigabyte and Chroma is run as a local process (see .gitignore), so both
+# stay on the host. Their absence is handled by design — an unreachable vector
+# store degrades retrieval to keyword search instead of failing startup.
+#
+#   docker compose up -d --wait      # start and block until healthy
+#   docker compose down              # stop (data survives in named volumes)
+#   docker compose down -v           # stop and delete data
+#
+# Port conflicts: if you already run MySQL or Redis natively (the usual case on
+# this machine), either stop them first or change the host-side port below and
+# set MYSQL_PORT / the Redis port in application-local.yml to match.
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: jobpilot-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: jobpilot
+      MYSQL_DATABASE: jobpilot
+    ports:
+      - "${MYSQL_HOST_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pjobpilot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: jobpilot-redis
+    # No password: this is a local development instance bound to the host only.
+    # Do not reuse this compose file as a production template.
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  mysql-data:
+  redis-data:

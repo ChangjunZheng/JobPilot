@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root
+          MYSQL_DATABASE: jobpilot
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # A test that only passes because the architecture checker was never run is
+      # not a passing test. Run it before the suite so a boundary violation is
+      # reported as itself rather than buried under test output.
+      - name: Architecture constraints
+        run: bash scripts/check-arch.sh
+
+      # JobPilotApplicationTests is a full @SpringBootTest, so the context boots
+      # Flyway against a real MySQL — the service container above is required.
+      # Chroma and Ollama are deliberately absent: the vector store is treated as
+      # unreachable (warn, keep keyword fallback) and the app must still start.
+      - name: Tests
+        run: ./mvnw -B test
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_DATABASE: jobpilot
+          MYSQL_USERNAME: root
+          MYSQL_PASSWORD: ci-root
