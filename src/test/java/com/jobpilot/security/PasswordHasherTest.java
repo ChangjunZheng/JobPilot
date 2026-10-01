@@ -18,8 +18,17 @@ class PasswordHasherTest {
         String hash = hasher.hash("password123");
 
         assertThat(hash).isNotEqualTo("password123");
-        assertThat(hasher.matches("password123", hash)).isTrue();
-        assertThat(hasher.matches("wrong-password", hash)).isFalse();
+        assertThat(hasher.matchesAlwaysHashing("password123", hash)).isTrue();
+        assertThat(hasher.matchesAlwaysHashing("wrong-password", hash)).isFalse();
+    }
+
+    /**
+     * 哈希缺失（账号不存在）时必须返回 false。至于「仍然跑了 bcrypt」这一时序性质，
+     * 单测里做时间断言只会变成 flaky，靠 {@code AccountServiceTest} 验证调用参数来兜。
+     */
+    @Test
+    void missingHashNeverMatches() {
+        assertThat(hasher.matchesAlwaysHashing("password123", null)).isFalse();
     }
 
     @Test

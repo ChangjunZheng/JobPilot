@@ -72,10 +72,14 @@ public class AccountService {
                 .eq("provider", PROVIDER_EMAIL)
                 .eq("identifier", identifier));
 
-        // 账号不存在与密码错误返回同一句话，避免把「这个邮箱注册过没有」变成可探测的信号
-        if (credential == null || !passwordHasher.matches(rawPassword, credential.getSecretHash())) {
+        // 账号不存在与密码错误返回同一句话，避免把「这个邮箱注册过没有」变成可探测的信号。
+        // 这里刻意不写成 credential == null || !matches(...)：短路会让账号不存在时跳过 bcrypt，
+        // 耗时差异把这层伪装拆穿。改成无条件校验一次，哈希缺失时由 PasswordHasher 用哑哈希顶上。
+        String secretHash = credential == null ? null : credential.getSecretHash();
+        if (!passwordHasher.matchesAlwaysHashing(rawPassword, secretHash)) {
             throw new ApiException("BAD_CREDENTIALS", "邮箱或密码不正确");
         }
+        // 走到这里 credential 必非空：secretHash 为 null 时上面必返回 false 并已抛出
 
         UserAccountEntity account = accountMapper.selectById(credential.getUserId());
         if (account == null || !STATUS_ACTIVE.equals(account.getStatus())) {
