@@ -84,6 +84,7 @@ class KnowledgeRetrievalServiceTest {
         // 同时命中 "RAG" 与 "经验" 两个关键词，达到 keywordMinHits = 2
         when(chunkMapper.selectList(any()))
                 .thenReturn(List.of(chunk("doc1#0#1", "熟悉 RAG 开发，有 3 年经验")));
+        when(documentMapper.selectList(any())).thenReturn(List.of(readyDoc()));
 
         RagAskService.AskAnswer answer = askService.ask("u1", "RAG 经验", 5, null);
 

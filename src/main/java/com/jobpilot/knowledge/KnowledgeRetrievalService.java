@@ -7,11 +7,13 @@ import com.jobpilot.ai.RetrievalQuery;
 import com.jobpilot.ai.RetrievalResult;
 import com.jobpilot.ai.RetrievedChunk;
 import com.jobpilot.ai.VectorStorePort;
+import com.jobpilot.common.UnauthorizedException;
 import com.jobpilot.config.RagProperties;
 import com.jobpilot.domain.KbChunkEntity;
 import com.jobpilot.domain.KbDocumentEntity;
 import com.jobpilot.mapper.KbChunkMapper;
 import com.jobpilot.mapper.KbDocumentMapper;
+import com.jobpilot.security.UserContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -58,9 +60,15 @@ public class KnowledgeRetrievalService {
                 || query.text() == null || query.text().isBlank()) {
             throw new IllegalArgumentException("userId 与查询文本不能为空");
         }
+        String contextUserId = UserContext.get();
+        if (contextUserId != null && !contextUserId.equals(query.userId())) {
+            throw new UnauthorizedException("租户上下文与查询身份不一致");
+        }
         int topK = query.topK() > 0 ? query.topK() : props.topK();
         try {
             return vectorSearch(query, topK);
+        } catch (UnauthorizedException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("向量检索失败，降级为关键词检索。VECTOR_STORE_DEGRADED", e);
             return RetrievalResult.keywordFallback(keywordSearch(query, topK));
@@ -105,10 +113,17 @@ public class KnowledgeRetrievalService {
         if (keywords.isEmpty()) {
             return List.of();
         }
+        QueryWrapper<KbDocumentEntity> documentWrapper = new QueryWrapper<>();
+        documentWrapper.eq("status", "READY");
+        List<String> readyDocumentIds = documentMapper.selectList(documentWrapper).stream()
+                .map(KbDocumentEntity::getId)
+                .toList();
+        if (readyDocumentIds.isEmpty()) {
+            return List.of();
+        }
+
         QueryWrapper<KbChunkEntity> wrapper = new QueryWrapper<>();
-        wrapper.eq("user_id", query.userId())
-                .inSql("document_id",
-                        "SELECT id FROM kb_document WHERE status = 'READY' AND user_id = " + sqlLiteral(query.userId()))
+        wrapper.in("document_id", readyDocumentIds)
                 .and(w -> keywords.forEach(kw -> w.or().like("text", kw)));
         if (query.docType() != null && !query.docType().isBlank()) {
             wrapper.eq("doc_type", query.docType());
@@ -181,9 +196,5 @@ public class KnowledgeRetrievalService {
                 chunk.getCharEnd() == null ? -1 : chunk.getCharEnd());
         return new RetrievedChunk(
                 chunk.getDocumentId(), chunk.getVectorId(), chunk.getText(), score, citation);
-    }
-
-    private String sqlLiteral(String value) {
-        return "'" + value.replace("'", "''") + "'";
     }
 }

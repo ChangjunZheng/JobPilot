@@ -8,8 +8,8 @@
 
 spring:
   autoconfigure:
-    # application.yml excludes infrastructure auto-configuration; clearing the list
-    # here re-enables it. Profile-specific values win over base ones, list included.
+    # Kept empty for profile compatibility. application.yml no longer declares
+    # exclusions; Boot 4 infrastructure starters are enabled directly here.
     exclude: []
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:jobpilot}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
@@ -24,6 +24,21 @@ spring:
       password: ${REDIS_PASSWORD:}
 
 jobpilot:
+  security:
+    # Generate a random value of at least 32 bytes for local development.
+    # Never commit the real value. Example: openssl rand -base64 32
+    jwt-secret: ${JOBPILOT_SECURITY_JWT_SECRET:}
+    jwt-issuer: ${JOBPILOT_SECURITY_JWT_ISSUER:jobpilot}
+    access-token-ttl: ${JOBPILOT_SECURITY_ACCESS_TOKEN_TTL:PT2H}
+    bcrypt-strength: ${JOBPILOT_SECURITY_BCRYPT_STRENGTH:10}
+    # Keep this list identical to application.yml. A broader glob here (e.g.
+    # /api/v1/auth/**) silently unprotects endpoints that production still guards,
+    # so the two never drift in what they let through.
+    public-paths:
+      - /api/v1/health
+      - /api/v1/auth/register
+      - /api/v1/auth/login
+      - /actuator/health
   rag:
     # Chroma 0.6.x REST cannot look a collection up by name, so this UUID must be
     # pinned: without it the collection id changes on restart and writes/reads

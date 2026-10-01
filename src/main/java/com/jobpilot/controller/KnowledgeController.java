@@ -10,6 +10,7 @@ import com.jobpilot.knowledge.DocumentIngestService;
 import com.jobpilot.knowledge.IngestCommand;
 import com.jobpilot.knowledge.KnowledgeRetrievalService;
 import com.jobpilot.knowledge.RagAskService;
+import com.jobpilot.security.UserContext;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,8 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * M-1 RAG 最小闭环 API（同步、无鉴权，user_id 由调用方显式传入；
- * 身份上下文归 M-2/M-4，服务端届时覆盖而非信任入参）。
+ * I-1 账号与租户隔离 API：user_id 由服务端从认证上下文解析，客户端不得传入或覆盖。
  */
 @RestController
 @RequestMapping("/api/v1/knowledge")
@@ -43,7 +43,6 @@ public class KnowledgeController {
     }
 
     public record IngestRequest(
-            @NotBlank String userId,
             @NotBlank String name,
             String docType,
             String tags,
@@ -59,7 +58,6 @@ public class KnowledgeController {
     }
 
     public record SearchRequest(
-            @NotBlank String userId,
             @NotBlank String query,
             Integer topK,
             String docType
@@ -82,7 +80,6 @@ public class KnowledgeController {
     }
 
     public record AskRequest(
-            @NotBlank String userId,
             @NotBlank String question,
             Integer topK,
             String docType
@@ -92,11 +89,11 @@ public class KnowledgeController {
     public record AskResponse(String answer, List<Citation> citations, String searchMode, boolean degraded) {
     }
 
-    public record DocumentResponse(String id, String userId, String name, String docType, String status,
+    public record DocumentResponse(String id, String name, String docType, String status,
                                    Integer indexVersion, Integer chunkCount, String errorMessage) {
 
         static DocumentResponse from(KbDocumentEntity doc) {
-            return new DocumentResponse(doc.getId(), doc.getUserId(), doc.getName(), doc.getDocType(),
+            return new DocumentResponse(doc.getId(), doc.getName(), doc.getDocType(),
                     doc.getStatus(), doc.getIndexVersion(), doc.getChunkCount(), doc.getErrorMessage());
         }
     }
@@ -108,7 +105,7 @@ public class KnowledgeController {
                 ? guessDocType(request.name())
                 : request.docType().toUpperCase();
         KbDocumentEntity doc = ingestService.ingest(new IngestCommand(
-                request.userId(), request.name(), docType, request.tags(), request.content()));
+                UserContext.require(), request.name(), docType, request.tags(), request.content()));
         return ApiResponse.ok(IngestResponse.from(doc));
     }
 
@@ -122,7 +119,7 @@ public class KnowledgeController {
     @PostMapping("/search")
     public ApiResponse<SearchResponse> search(@RequestBody @Validated SearchRequest request) {
         RetrievalResult result = retrievalService.search(new RetrievalQuery(
-                request.userId(), request.query(),
+                UserContext.require(), request.query(),
                 request.topK() == null ? 0 : request.topK(), request.docType()));
         return ApiResponse.ok(SearchResponse.from(result));
     }
@@ -131,7 +128,7 @@ public class KnowledgeController {
     @PostMapping("/ask")
     public ApiResponse<AskResponse> ask(@RequestBody @Validated AskRequest request) {
         RagAskService.AskAnswer answer = askService.ask(
-                request.userId(), request.question(),
+                UserContext.require(), request.question(),
                 request.topK() == null ? 0 : request.topK(), request.docType());
         List<Citation> citations = answer.evidence().stream().map(RetrievedChunk::citation).toList();
         return ApiResponse.ok(new AskResponse(answer.answer(), citations,

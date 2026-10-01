@@ -8,6 +8,7 @@ import com.jobpilot.domain.KbChunkEntity;
 import com.jobpilot.domain.KbDocumentEntity;
 import com.jobpilot.mapper.KbChunkMapper;
 import com.jobpilot.mapper.KbDocumentMapper;
+import com.jobpilot.security.UserContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -47,9 +48,17 @@ public class DocumentIngestService {
         this.props = props;
     }
 
-    /** 同步执行索引（单用户低并发够用）；返回最终状态快照 */
+    /**
+     * 服务层命令保留 userId 只是为了让用例可脱离 HTTP/ThreadLocal 测试；
+     * 真正的 Controller 已从 UserContext 派生身份（客户端不能传入）。
+     * 这里再做一次一致性校验，防止未来新增调用方绕过 Controller 注入另一个租户。
+     */
     public KbDocumentEntity ingest(IngestCommand command) {
         validate(command);
+        String contextUserId = UserContext.get();
+        if (contextUserId != null && !contextUserId.equals(command.userId())) {
+            throw new com.jobpilot.common.UnauthorizedException("租户上下文与导入身份不一致");
+        }
         KbDocumentEntity doc = new KbDocumentEntity();
         doc.setUserId(command.userId());
         doc.setName(command.name());

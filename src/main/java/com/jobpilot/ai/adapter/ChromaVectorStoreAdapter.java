@@ -116,8 +116,12 @@ public class ChromaVectorStoreAdapter implements VectorStorePort {
                                 + list.stream().map(CollectionDto::name).toList())));
     }
 
-    /** filters: {user_id: xx, doc_type: xx}，多条件用 $and 组合 */
+    /** filters 必须包含 user_id；缺失时 fail-closed，绝不能发出无 where 的跨租户查询。 */
     private Map<String, Object> buildWhere(Map<String, Object> filters) {
+        if (filters == null || filters.get("user_id") == null
+                || String.valueOf(filters.get("user_id")).isBlank()) {
+            throw new IllegalArgumentException("向量检索缺少 user_id 租户过滤条件");
+        }
         List<Map<String, Object>> conditions = new ArrayList<>();
         filters.forEach((key, value) -> {
             if (value != null) {
