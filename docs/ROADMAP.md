@@ -32,10 +32,18 @@
 ## 2. 开工前（当前阻塞）
 
 - [x] **提交文档改动** —— 已拆为 4 个提交（`8ceaee5` 产品定位 / `f9e1b09` 架构 / `684a308` ROADMAP / `0058c23` 零散注释）
-- [x] **启动 Redis** —— 本机用 `D:\Workspace\TechResources\Redis\Redis-8.6.2-Windows-x64-msys2-with-Service`（`redis-server.exe redis.conf`），8.6.2 跑在 6379，`bind 127.0.0.1`、**无 `requirepass`**。已用 `redis-cli client list` 确证应用侧 Lettuce 连接真实建立
+- [x] **验证 Redis 连通性** —— 本机用 `D:\Workspace\TechResources\Redis\Redis-8.6.2-Windows-x64-msys2-with-Service`，8.6.2 / 6379 / `bind 127.0.0.1` / **无 `requirepass`**。已用 `redis-cli client list` 确证应用侧 Lettuce（6.8.2.RELEASE）连接真实建立，**配置正确性已验证**
+- [x] **Redis 常驻** —— 已注册为 **Windows 服务**：`RedisService.exe install`，`START_TYPE: AUTO_START`（开机自启），当前 `RUNNING`。服务二进制路径与 `redis.conf`、`--dir` 均为绝对路径（避免服务工作目录不同导致 `dir ./` 落到 `C:\Windows\System32`）。管理命令：`net start Redis` / `net stop Redis`，卸载 `RedisService.exe uninstall`
 - [x] **补 `application-local.yml` 的 `spring.data.redis` 配置块** —— 已补（含 `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` 占位符）；`.example` 同步补齐 `spring.autoconfigure.exclude` 与 `chroma-collection-id`，两边不再漂移
 - [ ] **确认 I-0 数据库有无真实数据** —— 有则需决定租户键如何回填；只有测试数据则直接清库
 - [ ] （可选）确认 Chroma（:8000）与 Ollama（:11434）是否需启动 —— I-1 编码与单测不依赖，但端到端验证需要
+
+> **关于 Redis 的持久方式**：`D:\Workspace\TechResources\Redis\Redis-8.6.2-Windows-x64-msys2-with-Service\RedisService.exe` 提供三种形态——
+> - `RedisService.exe install -c redis.conf`：注册为 **Windows 服务**，默认 `--start-mode auto`（开机自启），随系统常驻，用 `uninstall` 卸载；
+> - `start.bat` / `redis-server.exe redis.conf`：前台运行，**关掉窗口即停止**；
+> - 随 Claude Code 会话后台启动：**会话或后台任务超时后即被杀**，不适合作为开发环境的常规做法。
+>
+> 前两种都可用，取决于是否希望它开机自启。**第三种已证明不可靠**（一次验证后就停了）。
 
 ## 2.1 工程基础设施（本会话新增）
 
