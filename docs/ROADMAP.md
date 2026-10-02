@@ -5,7 +5,7 @@
 | 最后更新 | 2026-10-01 |
 | 当前迭代 | **I-1（进行中：I-1a 核心已实现，集成越权测试待补）** |
 | 已完成 | I-0 |
-| 最近验证 | 27 个测试通过；`check-arch.sh` 全部通过；手工注册 / 登录 / 401 拦截 / 带令牌检索均通过 |
+| 最近验证 | 41 个测试通过；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
 
 > **本文件是「进度状态」的唯一事实来源。**
 > BRD / PRD / ARCHITECTURE 只回答「要做什么」和「为什么这么做」，**不记录做到哪一步**。
@@ -71,7 +71,7 @@
 
 ### 4.1 I-1a · 租户隔离骨架（优先，单独就有价值）
 
-**状态：** `[~]` 核心代码已实现；集成越权测试、ThreadLocal 清理回归和最终提交待完成。
+**状态：** `[x]` I-1a 安全验收完成；I-1b 登出撤销、I-1c 异步导入仍未开始。
 
 **做完这一步，现有接口就安全了**——它单独消除了「`userId` 由请求体传入」这个安全缺口。
 
@@ -85,16 +85,16 @@
 ### 4.1.1 I-1a 已完成项（本轮）
 
 - [x] **认证与租户隔离核心代码** —— `UserContext`、JWT/BCrypt、`AuthInterceptor`、账号接口、`TenantLineInnerInterceptor`、Controller 移除入参 `userId`、Chroma fail-closed、关键词降级移除手工 SQL
-- [x] **I-1a 核心单测** —— 27 个测试全通过（新增 JWT / BCrypt / UserContext / AuthInterceptor / TenantLineHandler）
+- [x] **I-1a 核心单测** —— 41 个测试全通过（新增 JWT / BCrypt / UserContext / AuthInterceptor / TenantLineHandler、真实 MySQL + MockMvc 租户隔离与异常响应回归）
 - [x] **I-1a 代码提交** —— 从「剩余项」移出，本条随该提交一并入库
 
 ### 4.1.2 I-1a 剩余项（下一步）
 
-- [ ] 集成越权测试：A/B 两账号 × 文档读 / 检索，断言不能跨租户
-- [ ] `ThreadLocalCleanupTest` 形式的跨请求污染回归（当前已有纯单元 `UserContextTest`）
-- [ ] 租户拦截器 SQL 实证测试：`selectById` / `selectByIds` / `selectList` 均不跨租户
-- [ ] 测试空知识库关键词降级（避免 `IN ()` 类问题）
-- [ ] 修复 `GlobalExceptionHandler` 的通用异常响应：当前未知 HTTP 方法仍暴露为 500 + 异常类名，需统一安全错误文案
+- [x] 集成越权测试：A/B 两账号 × 文档读 / 检索，断言不能跨租户
+- [x] `ThreadLocalCleanupTest` 形式的跨请求污染回归（当前已有纯单元 `UserContextTest`）
+- [x] 租户拦截器 SQL 实证测试：`selectById` / `selectByIds` / `selectList` 均不跨租户
+- [x] 测试空知识库关键词降级（避免 `IN ()` 类问题）
+- [x] 修复 `GlobalExceptionHandler` 的通用异常响应：未知 HTTP 方法返回 405，未知异常不暴露异常类名
 - [ ] 登出与 Redis jti 撤销（I-1b）
 
 - [ ] 注册（含隐私政策与数据用途明示）

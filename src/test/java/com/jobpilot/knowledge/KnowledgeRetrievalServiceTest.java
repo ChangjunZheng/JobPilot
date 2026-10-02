@@ -97,11 +97,28 @@ class KnowledgeRetrievalServiceTest {
     }
 
     @Test
+    void emptyReadyDocumentSetSkipsChunkQueryDuringKeywordFallback() {
+        when(embeddingPort.embed(any())).thenReturn(List.of(0.1));
+        when(vectorStore.search(any(), anyInt(), anyMap()))
+                .thenThrow(new IllegalStateException("Chroma 不可用"));
+        when(documentMapper.selectList(any())).thenReturn(List.of());
+
+        RetrievalResult result = retrievalService.search(
+                new com.jobpilot.ai.RetrievalQuery("u1", "RAG 经验", 5, null));
+
+        assertThat(result.degraded()).isTrue();
+        assertThat(result.searchMode()).isEqualTo(com.jobpilot.ai.SearchMode.KEYWORD_FALLBACK);
+        assertThat(result.items()).isEmpty();
+        verifyNoInteractions(chunkMapper);
+    }
+
+    @Test
     void keywordFallbackBelowMinHitsRefusesWithoutLLM() {
         when(embeddingPort.embed(any())).thenReturn(List.of(0.1));
         when(vectorStore.search(any(), anyInt(), anyMap()))
                 .thenThrow(new IllegalStateException("Chroma 不可用"));
         // chunk 只命中 "RAG" 一个关键词，低于 keywordMinHits = 2 → 不算证据
+        when(documentMapper.selectList(any())).thenReturn(List.of(readyDoc()));
         when(chunkMapper.selectList(any())).thenReturn(List.of(chunk("doc1#0#1")));
 
         RagAskService.AskAnswer answer = askService.ask("u1", "RAG 经验", 5, null);

@@ -3,7 +3,9 @@ package com.jobpilot.common;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -24,9 +26,11 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ApiException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResponse<Void> handleApiException(ApiException e) {
-        return ApiResponse.fail(e.getCode(), e.getMessage());
+    public ResponseEntity<ApiResponse<Void>> handleApiException(ApiException e) {
+        HttpStatus status = "NOT_FOUND".equals(e.getCode())
+                ? HttpStatus.NOT_FOUND
+                : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(ApiResponse.fail(e.getCode(), e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -45,10 +49,16 @@ public class GlobalExceptionHandler {
         return ApiResponse.fail("BAD_REQUEST", e.getMessage());
     }
 
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiResponse.fail("METHOD_NOT_ALLOWED", "不支持的请求方法"));
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleUnexpected(Exception e) {
         log.error("未预期异常", e);
-        return ApiResponse.fail("INTERNAL_ERROR", "服务内部错误：" + e.getClass().getSimpleName());
+        return ApiResponse.fail("INTERNAL_ERROR", "服务暂时不可用，请稍后重试");
     }
 }
