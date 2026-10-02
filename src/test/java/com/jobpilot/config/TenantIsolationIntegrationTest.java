@@ -11,6 +11,7 @@ import com.jobpilot.mapper.KbChunkMapper;
 import com.jobpilot.mapper.KbDocumentMapper;
 import com.jobpilot.security.JwtService;
 import com.jobpilot.security.UserContext;
+import com.jobpilot.support.MySqlIntegrationTestBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("local")
 @ContextConfiguration(classes = TenantIsolationIntegrationTest.TestPorts.class)
 @Transactional
-class TenantIsolationIntegrationTest {
+class TenantIsolationIntegrationTest extends MySqlIntegrationTestBase {
 
     private static final String TENANT_A = "tenant-a-";
     private static final String TENANT_B = "tenant-b-";

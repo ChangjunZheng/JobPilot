@@ -1,6 +1,7 @@
 package com.jobpilot.knowledge;
 
 import com.jobpilot.security.JwtService;
+import com.jobpilot.support.MySqlIntegrationTestBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("local")
 @TestPropertySource(properties = "jobpilot.ingest.enabled=false")
 @Transactional
-class IngestAsyncIntegrationTest {
+class IngestAsyncIntegrationTest extends MySqlIntegrationTestBase {
 
     @Autowired
     private MockMvc mockMvc;

@@ -1,5 +1,6 @@
 package com.jobpilot.security;
 
+import com.jobpilot.support.MySqlIntegrationTestBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,7 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-class ThreadLocalCleanupTest {
+class ThreadLocalCleanupTest extends MySqlIntegrationTestBase {
 
     @Autowired
     private MockMvc mockMvc;

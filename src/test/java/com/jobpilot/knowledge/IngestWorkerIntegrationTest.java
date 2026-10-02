@@ -3,6 +3,7 @@ package com.jobpilot.knowledge;
 import com.jobpilot.config.IngestProperties;
 import com.jobpilot.domain.KbDocumentEntity;
 import com.jobpilot.mapper.KbDocumentMapper;
+import com.jobpilot.support.MySqlIntegrationTestBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("local")
 @TestPropertySource(properties = "jobpilot.ingest.enabled=false")
 @Transactional
-class IngestWorkerIntegrationTest {
+class IngestWorkerIntegrationTest extends MySqlIntegrationTestBase {
 
     @Autowired
     private IngestWorker worker;

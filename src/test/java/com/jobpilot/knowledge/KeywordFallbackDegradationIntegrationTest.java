@@ -5,6 +5,7 @@ import com.jobpilot.ai.EmbeddingPort;
 import com.jobpilot.ai.VectorStorePort;
 import com.jobpilot.security.JwtService;
 import com.jobpilot.security.UserContext;
+import com.jobpilot.support.MySqlIntegrationTestBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("local")
 @ContextConfiguration(classes = KeywordFallbackDegradationIntegrationTest.TestPorts.class)
 @Transactional
-class KeywordFallbackDegradationIntegrationTest {
+class KeywordFallbackDegradationIntegrationTest extends MySqlIntegrationTestBase {
 
     @Autowired
     private MockMvc mockMvc;
