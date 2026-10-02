@@ -79,7 +79,8 @@ public class AuthController {
             throw new ApiException(ErrorCode.PRIVACY_CONSENT_REQUIRED, "注册需先同意隐私政策与数据用途说明");
         }
         return ApiResponse.ok(new TokenResponse(
-                accountService.register(request.email(), request.password())));
+                accountService.register(request.email(), request.password(),
+                        securityProperties.privacyNoticeVersion())));
     }
 
     /** 登录：按邮箱反查凭证并校验密码，返回访问令牌 */

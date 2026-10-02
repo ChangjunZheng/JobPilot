@@ -13,6 +13,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+
 /**
  * 账号注册与登录。
  * <p>
@@ -42,14 +44,16 @@ public class AccountService {
         this.jwtService = jwtService;
     }
 
-    /** 注册：创建账号 + 邮箱凭证，返回可立即使用的访问令牌 */
+    /** 注册：创建账号 + 邮箱凭证，返回可立即使用的访问令牌；隐私政策同意版本随账号留痕（V4） */
     @Transactional
-    public String register(String email, String rawPassword) {
+    public String register(String email, String rawPassword, String privacyVersion) {
         String identifier = normalizeEmail(email);
         validatePassword(rawPassword);
 
         UserAccountEntity account = new UserAccountEntity();
         account.setStatus(STATUS_ACTIVE);
+        account.setPrivacyVersion(privacyVersion);
+        account.setPrivacyConsentedAt(LocalDateTime.now());
         accountMapper.insert(account);
 
         UserCredentialEntity credential = new UserCredentialEntity();

@@ -79,6 +79,20 @@ class AccountServiceTest {
         verify(jwtService, never()).issue(any());
     }
 
+    @Test
+    void registrationRecordsPrivacyConsentTrail() {
+        // 合规留痕（V4）：谁在何时同意了哪个版本必须落在账号行上，不能只校验请求布尔值
+        when(jwtService.issue(any())).thenReturn("token");
+
+        accountService.register("New@Example.com", "password123", "2026-10-02");
+
+        org.mockito.ArgumentCaptor<UserAccountEntity> captor =
+                org.mockito.ArgumentCaptor.forClass(UserAccountEntity.class);
+        verify(accountMapper).insert(captor.capture());
+        assertThat(captor.getValue().getPrivacyVersion()).isEqualTo("2026-10-02");
+        assertThat(captor.getValue().getPrivacyConsentedAt()).isNotNull();
+    }
+
     private static UserCredentialEntity credential(String userId, String secretHash) {
         UserCredentialEntity credential = new UserCredentialEntity();
         credential.setUserId(userId);

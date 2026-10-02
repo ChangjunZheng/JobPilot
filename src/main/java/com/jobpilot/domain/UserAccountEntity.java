@@ -14,6 +14,9 @@ public class UserAccountEntity {
     private String id;
     /** ACTIVE / DISABLED */
     private String status;
+    /** 注册时同意的隐私政策版本（合规留痕，V4） */
+    private String privacyVersion;
+    private LocalDateTime privacyConsentedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -31,6 +34,22 @@ public class UserAccountEntity {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getPrivacyVersion() {
+        return privacyVersion;
+    }
+
+    public void setPrivacyVersion(String privacyVersion) {
+        this.privacyVersion = privacyVersion;
+    }
+
+    public LocalDateTime getPrivacyConsentedAt() {
+        return privacyConsentedAt;
+    }
+
+    public void setPrivacyConsentedAt(LocalDateTime privacyConsentedAt) {
+        this.privacyConsentedAt = privacyConsentedAt;
     }
 
     public LocalDateTime getCreatedAt() {
