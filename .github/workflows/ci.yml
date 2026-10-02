@@ -32,6 +32,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # check-arch.sh needs ripgrep; ubuntu-latest does not ship it, and the
+      # script exits 2 without it. Install it explicitly rather than letting
+      # the architecture gate fail on a missing tool.
+      - name: Install ripgrep
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -46,7 +52,14 @@ jobs:
         run: bash scripts/check-arch.sh
 
       # JobPilotApplicationTests is a full @SpringBootTest that boots Flyway
-      # against a real MySQL, so the service container above is required.
+      # against a real MySQL, so the job needs a MySQL.
+      #
+      # Two ways to get one, and only the second is used:
+      #  - the service container below, wired through SPRING_DATASOURCE_*;
+      #  - a Testcontainers MySQL (MySqlIntegrationTestBase), enabled by the
+      #    switch below and therefore the one that actually runs here.
+      # The service container stays wired as a fallback for a Docker-less
+      # runner. To use it instead, drop JOBPILOT_TEST_DOCKER from the env.
       #
       # These must be the standard SPRING_DATASOURCE_* property names. The
       # datasource URL otherwise lives only in application-local.yml, which is
@@ -55,9 +68,16 @@ jobs:
       #
       # Chroma and Ollama are deliberately absent: the vector store is treated
       # as unreachable (warn, keep keyword fallback) and startup still succeeds.
+      #
+      # The image is pulled up front: a cold pull inside the test run competes
+      # with the 15-minute job timeout, and a cancelled pull is cached nowhere.
+      - name: Pre-pull MySQL image
+        run: docker pull mysql:8.4
+
       - name: Tests
         run: ./mvnw -B test
         env:
+          JOBPILOT_TEST_DOCKER: 'true'
           SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/jobpilot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
           SPRING_DATASOURCE_USERNAME: root
           SPRING_DATASOURCE_PASSWORD: ci-root

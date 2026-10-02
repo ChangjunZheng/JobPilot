@@ -21,7 +21,17 @@ RG="$(command -v rg 2>/dev/null || true)"
 AG="$(command -v ast-grep 2>/dev/null || true)"
 
 if [ -z "$RG" ]; then
-  echo "错误：找不到 rg。装法：winget install BurntSushi.ripgrep.MSVC" >&2
+  # Linux / CI 上没有 winget，装一下再继续：缺工具而静默跳过架构检查，
+  # 等于让「检查通过」变成「检查根本没跑」（CI 上就是这么红的）。
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "未找到 rg，尝试通过 apt-get 安装…" >&2
+    (apt-get update -qq && apt-get install -y -qq ripgrep) >/dev/null 2>&1 || true
+    RG="$(command -v rg 2>/dev/null || true)"
+  fi
+fi
+
+if [ -z "$RG" ]; then
+  echo "错误：找不到 rg。装法：winget install BurntSushi.ripgrep.MSVC（Windows）/ apt-get install ripgrep（Linux）" >&2
   exit 2
 fi
 
