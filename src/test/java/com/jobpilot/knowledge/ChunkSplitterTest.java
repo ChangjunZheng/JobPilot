@@ -63,4 +63,22 @@ class ChunkSplitterTest {
         assertThatThrownBy(() -> splitter.split("x", "PLAIN_TEXT", 100, 100))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void slideKeepsWholeCodePointsWhenLineContainsEmoji() {
+        // 每个 emoji 占 2 个 char、1 个码点：滑窗若把 char 索引混进码点运算，
+        // 第二个窗口起偏移就错（严重时 begin > end 直接越界）
+        String text = "😀".repeat(300);
+        List<ChunkPart> parts = splitter.split(text, "PLAIN_TEXT", 100, 20);
+
+        // 窗口按码点推进：起点 0/80/160/240，长度 100/100/100/60
+        assertThat(parts).extracting(ChunkPart::charStart).containsExactly(0, 80, 160, 240);
+        assertThat(parts).extracting(ChunkPart::charEnd).containsExactly(100, 180, 260, 300);
+        for (ChunkPart part : parts) {
+            // 码点数与区间一致，且代理对不被切断：chunk 是完整 emoji 的整倍数
+            assertThat(part.text().codePointCount(0, part.text().length()))
+                    .isEqualTo(part.charEnd() - part.charStart());
+            assertThat(part.text()).isEqualTo("😀".repeat(part.charEnd() - part.charStart()));
+        }
+    }
 }

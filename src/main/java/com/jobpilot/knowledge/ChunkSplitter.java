@@ -166,7 +166,7 @@ public class ChunkSplitter {
         int cursorChar = 0;
         while (cursorCp < total) {
             int endCp = Math.min(cursorCp + chunkSize, total);
-            int endChar = text.offsetByCodePoints(cursorChar, endCp - cursorChar);
+            int endChar = text.offsetByCodePoints(cursorChar, endCp - cursorCp);
             raw.add(new RawChunk(sectionPath, text.substring(cursorChar, endChar),
                     line.startCp() + cursorCp));
             cursorCp += step;

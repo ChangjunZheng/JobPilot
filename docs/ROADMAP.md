@@ -5,7 +5,7 @@
 | 最后更新 | 2026-10-02 |
 | 当前迭代 | **I-1（进行中：I-1a 已收口，剩登出撤销与 I-1c 异步化）** |
 | 已完成 | I-0 |
-| 最近验证 | 44 个测试通过（新增空知识库/非 READY 降级的集成回归 3 例）；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
+| 最近验证 | 45 个测试通过（含 emoji 代理对滑窗回归）；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
 
 > **本文件是「进度状态」的唯一事实来源。**
 > BRD / PRD / ARCHITECTURE 只回答「要做什么」和「为什么这么做」，**不记录做到哪一步**。
