@@ -2,10 +2,10 @@
 
 | 项 | 内容 |
 |---|---|
-| 最后更新 | 2026-10-01 |
-| 当前迭代 | **I-1（进行中：I-1a 核心已实现，集成越权测试待补）** |
+| 最后更新 | 2026-10-02 |
+| 当前迭代 | **I-1（进行中：I-1a 已收口，剩登出撤销与 I-1c 异步化）** |
 | 已完成 | I-0 |
-| 最近验证 | 41 个测试通过；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
+| 最近验证 | 44 个测试通过（新增空知识库/非 READY 降级的集成回归 3 例）；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
 
 > **本文件是「进度状态」的唯一事实来源。**
 > BRD / PRD / ARCHITECTURE 只回答「要做什么」和「为什么这么做」，**不记录做到哪一步**。
@@ -51,17 +51,17 @@
 - [x] **CI 门禁** —— `.github/workflows/ci.yml`：MySQL 8.4 service container + JDK 21 + `check-arch.sh` + `mvn test`。**已实测确认只需要 MySQL**，Chroma/Ollama 缺失属预期（向量库不可达 → 告警 + 保留关键词降级，不阻断启动）
 - [x] **本地基础设施编排** —— `docker-compose.yml`：MySQL 8.4 + Redis 7，带 healthcheck 与命名卷
 - [ ] **ADR 目录** —— 把 §1.4.1（LangGraph4j）、§8.1（降级边界）这类决策从架构文档中抽出为独立、只增不改的记录；当前它们混在 ARCHITECTURE 里，随主文档一起被改写
-- [ ] **测试覆盖 I-1 的新约束** —— 越权用例与 ThreadLocal 清理回归（见 §4.1）
+- [x] **测试覆盖 I-1 的新约束** —— 越权用例与 ThreadLocal 清理回归（`a57dbb4` + 本轮降级回归，见 §4.1）
 
 ---
 
 ## 3. 待决策（会卡住 I-1 编码）
 
-- [ ] **密码哈希算法**：bcrypt 还是 Argon2
-- [ ] **JWT 参数**：HS256（对称、简单）还是 RS256（非对称、便于将来扩展）；access / refresh 的 TTL 取值
-- [ ] **存量数据迁移策略**（取决于上面第 4 项确认结果）
+> 2026-10-02：前两项已随 I-1a 核心落地决出——**BCrypt（强度 10）**、**HS256 + access TTL 2h**（见 `SecurityProperties` / `application.yml`）。按更新约定 5，结论正式归档到 ARCHITECTURE 与 §2.1 的 ADR 条目一并处理。
 
-> 其余待决项见 [PRD §12](./PRD.md)。这两条不定也能先写别的部分，但会在建 `Credential` 表时卡住。
+- [ ] **存量数据迁移策略**（取决于 §2「确认 I-0 数据库有无真实数据」的确认结果）
+
+> 其余待决项见 [PRD §12](./PRD.md)。
 
 ---
 
@@ -75,32 +75,35 @@
 
 **做完这一步，现有接口就安全了**——它单独消除了「`userId` 由请求体传入」这个安全缺口。
 
-- [ ] `User` / `Credential` 表 —— **credential 用 `(provider, identifier)` 唯一键，不用 email 唯一键**（理由见 [ARCHITECTURE §14.2](./ARCHITECTURE.md)）
-- [ ] `security` 包 + `UserContext`（ThreadLocal，`afterCompletion` 必须 `remove()`）
-- [ ] `TenantLineInnerInterceptor` 注册到 `MybatisPlusInterceptor`，配 `PaginationInnerInterceptor`
-- [ ] `KnowledgeController` 移除入参 `userId`，改为凭证解析
-- [ ] 越权集成测试（六个业务对象 × 读/改/删/检索）
-- [ ] `ThreadLocalCleanupTest` 形式的跨请求污染回归
+- [x] `User` / `Credential` 表 —— **credential 用 `(provider, identifier)` 唯一键，不用 email 唯一键**（理由见 [ARCHITECTURE §14.2](./ARCHITECTURE.md)）（`168232a`）
+- [x] `security` 包 + `UserContext`（ThreadLocal，`afterCompletion` 必须 `remove()`）（`168232a`）
+- [x] `TenantLineInnerInterceptor` 注册到 `MybatisPlusInterceptor`（`168232a`；分页拦截器按 `MybatisPlusConfig` 注释刻意未加，引分页时必须补在租户拦截器之后）
+- [x] `KnowledgeController` 移除入参 `userId`，改为凭证解析（`168232a`）
+- [~] 越权集成测试（六个业务对象 × 读/改/删/检索）—— 现有业务对象（文档读/检索/降级）已覆盖（`a57dbb4` + 本轮降级回归）；其余业务对象随 I-3 落地时补
+- [x] `ThreadLocalCleanupTest` 形式的跨请求污染回归（`a57dbb4`）
 
 ### 4.1.1 I-1a 已完成项（本轮）
 
 - [x] **认证与租户隔离核心代码** —— `UserContext`、JWT/BCrypt、`AuthInterceptor`、账号接口、`TenantLineInnerInterceptor`、Controller 移除入参 `userId`、Chroma fail-closed、关键词降级移除手工 SQL
 - [x] **I-1a 核心单测** —— 41 个测试全通过（新增 JWT / BCrypt / UserContext / AuthInterceptor / TenantLineHandler、真实 MySQL + MockMvc 租户隔离与异常响应回归）
 - [x] **I-1a 代码提交** —— 从「剩余项」移出，本条随该提交一并入库
+- [x] **越权与隔离集成测试提交** —— `a57dbb4`：A/B 双账号 × 文档读/检索越权断言、租户拦截器 SQL 实证、无上下文 fail-closed、无效令牌不残留上下文；含 `GlobalExceptionHandler` 405/安全文案修复及单测
+- [x] **空知识库降级集成回归** —— `KeywordFallbackDegradationIntegrationTest` 3 例：与 §4.1.2 的单元级覆盖（`emptyReadyDocumentSetSkipsChunkQuery…`）互补，在真实 MySQL 上锁定「空集合不拼 `IN ()`」「非 READY 文档不进降级检索」「纯符号 query 空返回」「降级路径同样不泄跨租户数据、请求体 `userId` 不生效」
 
 ### 4.1.2 I-1a 剩余项（下一步）
 
 - [x] 集成越权测试：A/B 两账号 × 文档读 / 检索，断言不能跨租户
 - [x] `ThreadLocalCleanupTest` 形式的跨请求污染回归（当前已有纯单元 `UserContextTest`）
 - [x] 租户拦截器 SQL 实证测试：`selectById` / `selectByIds` / `selectList` 均不跨租户
-- [x] 测试空知识库关键词降级（避免 `IN ()` 类问题）
+- [x] 测试空知识库关键词降级（避免 `IN ()` 类问题）—— 单元级 `emptyReadyDocumentSetSkipsChunkQuery…` + 集成级 `KeywordFallbackDegradationIntegrationTest` 双层锁定
 - [x] 修复 `GlobalExceptionHandler` 的通用异常响应：未知 HTTP 方法返回 405，未知异常不暴露异常类名
 - [ ] 登出与 Redis jti 撤销（I-1b）
 
-- [ ] 注册（含隐私政策与数据用途明示）
-- [ ] 登录 / 登出
-- [ ] JWT 签发与校验；**登出后原凭证立即失效**（Redis jti 黑名单）
-- [ ] 未认证访问业务接口返回 401；跨租户返回 404/403 并写安全日志
+- [x] 注册接口（`168232a`，最小实现；**隐私政策与数据用途明示未做**，见下行）
+- [x] 登录接口（`168232a`）；登出未做（见 I-1b 剩余项）
+- [ ] 注册流程的隐私政策与数据用途明示文案
+- [x] JWT 签发与校验（`168232a`）；**登出后原凭证立即失效**（Redis jti 黑名单）未做，随登出一并完成
+- [x] 未认证访问业务接口返回 401；跨租户返回 404（手工 + `ThreadLocalCleanupTest` / `TenantIsolationIntegrationTest` 锁定）；**安全日志未接**
 
 ### 4.3 I-1c · 导入异步化
 
@@ -126,7 +129,7 @@
 
 | 缺陷 | 影响 | 位置 |
 |---|---|---|
-| `userId` 由请求体传入 | **安全缺陷**——客户端可任意指定身份 | `KnowledgeController` |
+| `userId` 由请求体传入 **✅ 已修复（`168232a`）** | 安全缺陷——客户端可任意指定身份 | `KnowledgeController` |
 | 索引同步执行 | 单个请求占用线程数十秒到数分钟；被反代默认超时切断 | `DocumentIngestService` |
 | `PROCESSING` 僵死行无接管 | JVM 重启后该文档永久停留在中间态 | 同上 |
 | `ApiResponse` 缺 `requestId` | 用户报障无法关联服务端日志 | `common` |
