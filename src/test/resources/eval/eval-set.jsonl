@@ -1,0 +1,25 @@
+# 检索评测集（PRD §9.2）：20 条固定 QA 对，JSONL，一行一例
+# 字段：id / type（FACTUAL 事实型 | COMPARATIVE 比较型 | SYNTHESIS 综合型 | NO_ANSWER 无答案型）
+#       question / expected（期望段落 ID 数组，对应 eval-corpus.md 的 P01~P20；NO_ANSWER 为空数组）
+# 约束：8 事实型 + 5 比较型 + 4 综合型 + 3 无答案型；语料为公开知识自造表述，不含真实用户材料
+# 命中判定：top-5 引用的 sectionPath 包含任一期望段落 ID（执行器实现）；无答案型只验证「证据为空」
+{"id":"E01","type":"FACTUAL","question":"Java 虚拟机如何判断一个对象可以被回收？","expected":["P01"]}
+{"id":"E02","type":"FACTUAL","question":"Spring 容器中 Bean 的默认作用域是什么？","expected":["P02"]}
+{"id":"E03","type":"FACTUAL","question":"MySQL InnoDB 在没有显式配置时默认使用哪种事务隔离级别？","expected":["P04"]}
+{"id":"E04","type":"FACTUAL","question":"HTTP 401 和 403 状态码的核心语义区别是什么？","expected":["P06"]}
+{"id":"E05","type":"FACTUAL","question":"Redis 对过期键采用什么删除策略？","expected":["P07"]}
+{"id":"E06","type":"FACTUAL","question":"一个 JWT 令牌由哪几个部分组成？","expected":["P08"]}
+{"id":"E07","type":"FACTUAL","question":"TCP 建立连接时为什么要进行三次握手？","expected":["P13"]}
+{"id":"E08","type":"FACTUAL","question":"防止 SQL 注入最有效的编码实践是什么？","expected":["P17"]}
+{"id":"E09","type":"COMPARATIVE","question":"HashMap 和 Hashtable 在线程安全性上有什么不同？","expected":["P09"]}
+{"id":"E10","type":"COMPARATIVE","question":"ArrayList 和 LinkedList 在随机访问性能上差异的根源是什么？","expected":["P10"]}
+{"id":"E11","type":"COMPARATIVE","question":"范围查询场景下 B+ 树相比 B 树的优势来自哪里？","expected":["P15"]}
+{"id":"E12","type":"COMPARATIVE","question":"PUT 与 POST 在幂等性上的区别是什么？","expected":["P18"]}
+{"id":"E13","type":"COMPARATIVE","question":"接口和抽象类在多继承能力上的差异是什么？","expected":["P11"]}
+{"id":"E14","type":"SYNTHESIS","question":"一个对外 API 要同时做到防 SQL 注入和保证创建操作的幂等，应分别采用哪些手段？","expected":["P17","P18"]}
+{"id":"E15","type":"SYNTHESIS","question":"排查一条慢 SQL 时，索引失效场景和事务隔离级别各在什么环节起作用？","expected":["P04","P05"]}
+{"id":"E16","type":"SYNTHESIS","question":"设计高并发服务时，Redis 的过期键策略和消息队列的削峰分别解决什么问题？","expected":["P07","P16"]}
+{"id":"E17","type":"SYNTHESIS","question":"API 对无效 JWT 应返回什么状态码，它与已认证但权限不足的 403 如何区分？","expected":["P06","P08"]}
+{"id":"E18","type":"NO_ANSWER","question":"React Server Components 的渲染流程是怎样的？","expected":[]}
+{"id":"E19","type":"NO_ANSWER","question":"Kubernetes 的 HPA 控制器如何计算副本数？","expected":[]}
+{"id":"E20","type":"NO_ANSWER","question":"如何用 Rust 的所有权机制避免数据竞争？","expected":[]}
