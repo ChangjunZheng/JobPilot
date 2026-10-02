@@ -1,6 +1,7 @@
 package com.jobpilot.knowledge;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.jobpilot.ai.EmbeddingPort;
 import com.jobpilot.ai.VectorStorePort;
 import com.jobpilot.config.IngestProperties;
@@ -115,8 +116,9 @@ class DocumentIngestServiceTest {
         // 首次重排队退避 = retryBackoff × 2^0 = 30s
         assertThat(saved.getValue().getNextRetryAt())
                 .isCloseTo(LocalDateTime.now().plusSeconds(30), within(Duration.ofSeconds(5)));
-        // 幂等清理只发生一次（attempt 开头）；重排队路径不再重复删，残留由下次尝试开头清
+        // 幂等清理只发生一次（attempt 开头，Chunk + 旧向量）；重排队路径不再重复删
         verify(chunkMapper).delete(any(Wrapper.class));
+        verify(vectorStore).deleteByDocumentId("doc-test");
     }
 
     @Test
@@ -158,6 +160,38 @@ class DocumentIngestServiceTest {
         assertThatThrownBy(() -> service.process(pending))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("PROCESSING");
+    }
+
+    @Test
+    void reindexRequeuesReadyDocument() {
+        KbDocumentEntity ready = claimedTask(0, null);
+        ready.setStatus("READY");
+        ready.setChunkCount(3);
+        ready.setErrorMessage("旧错误");
+        when(documentMapper.selectById("doc-test")).thenReturn(ready);
+        when(documentMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class))).thenReturn(1);
+
+        KbDocumentEntity result = service.reindex("doc-test");
+
+        assertThat(result).isNotNull();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<UpdateWrapper<KbDocumentEntity>> wrapper =
+                ArgumentCaptor.forClass(UpdateWrapper.class);
+        verify(documentMapper).update(org.mockito.ArgumentMatchers.isNull(), wrapper.capture());
+        // 条件更新只对 READY/FAILED 生效，进行中任务不可重排（目标 SQL 是占位符，实际值在参数表里）
+        assertThat(wrapper.getValue().getTargetSql()).contains("status IN");
+        assertThat(wrapper.getValue().getParamNameValuePairs().values())
+                .contains("READY", "FAILED", "PENDING");
+    }
+
+    @Test
+    void reindexRejectsInFlightDocument() {
+        when(documentMapper.selectById("doc-test")).thenReturn(claimedTask(0, null)); // PROCESSING
+        when(documentMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> service.reindex("doc-test"))
+                .isInstanceOf(com.jobpilot.common.ApiException.class)
+                .hasMessageContaining("无法重排");
     }
 
     private KbDocumentEntity claimedTask(int retryCount, String content) {

@@ -15,6 +15,13 @@ public interface VectorStorePort {
 
     void delete(String id);
 
+    /**
+     * 按文档批量删除向量（I-1 顺带清理：重试幂等与终态清场）。
+     * document_id 是 upsert 时写入的 metadata，全局唯一且与行内 user_id 一一对应；
+     * 调用方只能对已认领/租户校验过的文档调用，不存在跨租户面。
+     */
+    void deleteByDocumentId(String documentId);
+
     /** 相似度检索，按分数降序返回至多 topK 条 */
     List<VectorMatch> search(List<Double> queryVector, int topK, Map<String, Object> filters);
 

@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.jobpilot.ai.EmbeddingPort;
 import com.jobpilot.ai.VectorStorePort;
+import com.jobpilot.common.ApiException;
+import com.jobpilot.common.ErrorCode;
 import com.jobpilot.config.IngestProperties;
 import com.jobpilot.config.RagProperties;
 import com.jobpilot.domain.KbChunkEntity;
@@ -101,6 +103,28 @@ public class DocumentIngestService {
     }
 
     /**
+     * 重排既有文档（重导）：仅 READY / FAILED 可重排，进行中的任务拒绝。
+     * index_version 不变——同 vector_id 的 upsert 天然覆盖，不产生孤儿向量；
+     * 行重置为 PENDING 后由同一个队列 worker 执行，复用全部重试/接管语义。
+     * 条件更新（status IN (READY, FAILED)）兜住「查询后被认领」的竞态：未命中即视为进行中。
+     */
+    public KbDocumentEntity reindex(String documentId) {
+        document(documentId); // 404 语义（含租户隔离）先行
+        int updated = documentMapper.update(null, new UpdateWrapper<KbDocumentEntity>()
+                .eq("id", documentId)
+                .in("status", "READY", "FAILED")
+                .set("status", "PENDING")
+                .set("retry_count", 0)
+                .set("chunk_count", 0)
+                .set("next_retry_at", null)
+                .set("error_message", null));
+        if (updated != 1) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "任务正在进行中，无法重排");
+        }
+        return document(documentId);
+    }
+
+    /**
      * 执行一次已认领任务的索引尝试。失败不抛出——任务的去向（READY / PENDING 重排队 / FAILED）
      * 全部落到行上，worker 循环不因单个任务中断。
      */
@@ -109,9 +133,10 @@ public class DocumentIngestService {
             throw new IllegalStateException(
                     "process 只接受已认领（PROCESSING）的任务，收到：" + claimed.getStatus());
         }
-        deleteChunksOf(claimed); // 重试幂等：先清掉上一次尝试可能残留的 Chunk，vector_id 才不会撞主键
 
         try {
+            // 幂等清理（Chunk + 旧向量）放在 try 内：清理本身依赖向量库可用，失败同样走重试语义
+            cleanupAttempt(claimed);
             String content = claimed.getContent();
             if (content == null || content.isBlank()) {
                 throw new IllegalArgumentException("提取文本为空，无可索引 Chunk");
@@ -142,7 +167,7 @@ public class DocumentIngestService {
         claimed.setStatus("FAILED");
         claimed.setErrorMessage(truncate(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
         claimed.setNextRetryAt(null);
-        deleteChunksOf(claimed);
+        bestEffortCleanup(claimed); // 终态清场：不留半成品 Chunk 与孤儿向量；清理失败只告警，不改变终态
         updateGuardedByProcessing(claimed);
     }
 
@@ -151,13 +176,13 @@ public class DocumentIngestService {
         int retried = claimed.getRetryCount() == null ? 1 : claimed.getRetryCount() + 1;
         if (retried > ingestProps.maxRetries()) {
             log.warn("文档索引失败且重试耗尽 documentId={} retryCount={}", claimed.getId(), retried, e);
-            deleteChunksOf(claimed); // 终态 FAILED：当场清掉本次尝试的残留，不留半成品
+            bestEffortCleanup(claimed); // 终态 FAILED：当场清掉本次尝试的残留
             claimed.setStatus("FAILED");
             claimed.setErrorMessage(reason);
             claimed.setNextRetryAt(null);
             claimed.setRetryCount(retried);
         } else {
-            // 重排队：本次尝试的残留 Chunk 由下次尝试开头的幂等清理负责，这里不重复删
+            // 重排队：本次尝试的残留由下次尝试开头的幂等清理负责，这里不重复删
             Duration backoff = ingestProps.retryBackoff().multipliedBy(1L << (retried - 1));
             claimed.setStatus("PENDING");
             claimed.setErrorMessage(reason);
@@ -180,8 +205,20 @@ public class DocumentIngestService {
         }
     }
 
-    private void deleteChunksOf(KbDocumentEntity doc) {
+    /** 认领后的幂等清场：删同文档旧 Chunk + 旧向量，重试才不会撞主键、终态才不会留孤儿 */
+    private void cleanupAttempt(KbDocumentEntity doc) {
         chunkMapper.delete(new QueryWrapper<KbChunkEntity>().eq("document_id", doc.getId()));
+        vectorStore.deleteByDocumentId(doc.getId());
+    }
+
+    /** 终态清场的尽力而为版：清理失败只告警——向量残留由 READY 过滤兜底（检索不会命中），不值得为它改变终态 */
+    private void bestEffortCleanup(KbDocumentEntity doc) {
+        try {
+            cleanupAttempt(doc);
+        } catch (RuntimeException e) {
+            log.warn("终态清理未完成（检索有 READY 过滤兜底，孤儿向量可由下次重排清掉）documentId={}",
+                    doc.getId(), e);
+        }
     }
 
     private void indexChunk(KbDocumentEntity doc, ChunkPart part) {

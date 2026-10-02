@@ -112,6 +112,13 @@ public class KnowledgeController {
         return ApiResponse.ok(IngestResponse.from(doc));
     }
 
+    /** 重排既有文档（重导）：READY / FAILED 可重排，同 index_version 的 upsert 覆盖不产生孤儿向量 */
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @PostMapping("/documents/{id}/reindex")
+    public ApiResponse<DocumentResponse> reindex(@PathVariable String id) {
+        return ApiResponse.ok(DocumentResponse.from(ingestService.reindex(id)));
+    }
+
     /** 索引状态查询（PRD：导入成功只代表任务创建，状态必须可查） */
     @GetMapping("/documents/{id}")
     public ApiResponse<DocumentResponse> document(@PathVariable String id) {

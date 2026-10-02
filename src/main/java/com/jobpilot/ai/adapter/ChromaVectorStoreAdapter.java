@@ -63,6 +63,16 @@ public class ChromaVectorStoreAdapter implements VectorStorePort {
     }
 
     @Override
+    public void deleteByDocumentId(String documentId) {
+        restClient.post()
+                .uri("/api/v1/collections/{cid}/delete", ensureCollectionId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("where", Map.of("document_id", Map.of("$eq", String.valueOf(documentId)))))
+                .retrieve()
+                .body(String.class);
+    }
+
+    @Override
     public List<VectorMatch> search(List<Double> queryVector, int topK, Map<String, Object> filters) {
         Map<String, Object> request = Map.of(
                 "query_embeddings", List.of(queryVector),
