@@ -118,7 +118,7 @@
 - [x] 20 条评测集（JSONL，含失败归因分类；格式与归因口径见 [PRD §9.2](./PRD.md)）—— 语料 `eval-corpus.md`（P01~P20，含 5 个**有意留的干扰项**）+ `eval-set.jsonl`（8 事实 / 5 比较 / 4 综合 / 3 无答案）+ `RetrievalEvalRunner`（`EVAL_RUN=true` 手动跑，需真实 Ollama/Chroma）+ `EvalSetStructureTest`（**不依赖基础设施**，随日常 `mvn test` 校验格式、配比与期望段落是否存在）
 - [x] consent 版本持久化留痕（合规）—— V4 迁移给 `user_account` 加 `privacy_version` / `privacy_consented_at`；版本号取 `jobpilot.security.privacy-notice-version`，控制器传入、服务落库
 - [x] `ApiResponse` 补 `requestId` 字段 —— `RequestIdFilter`（`HIGHEST_PRECEDENCE`）写 MDC + `X-Request-Id` 响应头，`ApiResponse` 工厂方法直接读 MDC；用 Filter 而非拦截器是因为要覆盖 `/error` 与 401 等全部路径
-- [x] Testcontainers 集成测试基类 —— `MySqlIntegrationTestBase`：Docker 可用时起 `mysql:8.4` 容器接管数据源，不可用时**回退** `application-local.yml` 本机 MySQL。**Docker 路径本地未验证（本机 Docker Desktop 未运行），已验证的是回退路径**
+- [x] Testcontainers 集成测试基类 —— `MySqlIntegrationTestBase`：**默认用本机 MySQL，完全不连接 Docker**；仅当环境变量 `JOBPILOT_TEST_DOCKER=true` 时才起 `mysql:8.4` 容器（`ci.yml` 显式设置）。**两条路径均已真实验证**（容器路径 80 测试通过、耗时 3 分 52 秒；本机路径 17.8 秒）。本机启动 Docker 非常卡，因此默认不开启
 - [x] 中文关键词 2 字窗口 —— `extractKeywords` 按码点滑窗（汉字 2 字、拉丁 3 字），窗口不会切进代理对
 - [x] 向量路径候选池 —— `CANDIDATE_POOL_FACTOR = 3`：放大取候选，阈值截断与 READY 过滤后再 `limit(topK)`
 - [x] reindex / 孤儿向量清理 —— 端口加 `deleteByDocumentId`；`process` 开头幂等清场升级为「Chunk + 旧向量」双清，终态清场失败降级为尽力而为（READY 过滤兜底）；`POST /documents/{id}/reindex` 条件更新（`status IN (READY, FAILED)`）兜住「查询后被认领」的竞态

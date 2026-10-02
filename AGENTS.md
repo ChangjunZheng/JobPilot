@@ -46,6 +46,8 @@ mvn test -Dtest=KnowledgeRetrievalServiceTest   # 不需要 MySQL / Chroma / Oll
 
 三个单元的 mock 约定：mapper 与 port（`EmbeddingPort` / `VectorStorePort` / `ChatPort`）全部 mock 掉。`DocumentIngestServiceTest` 用 `doAnswer` 模拟 MyBatis-Plus 的 `ASSIGN_UUID` 补主键，新增依赖主键生成的用例需保持这个 stub。构造 `RagProperties` 用全参构造器（11 个字段）。
 
+**集成测试默认不碰 Docker**：`MySqlIntegrationTestBase` 走本机 MySQL（`application-local.yml`），**不设环境变量就完全不连接 Docker 引擎**。本机启动 Docker Desktop 非常卡，不要为了跑测试去开它。只有需要验证 Testcontainers 容器分支时才设 `JOBPILOT_TEST_DOCKER=true`（`ci.yml` 里有），此时需要一个可用的 Docker 引擎。
+
 ## 运行时的基础设施开关（重要）
 
 `application.yml` 默认 profile 为 `local`，MySQL/Redis 连接信息全部放在 `application-local.yml`（gitignored，需从 `application-local.yml.example` 复制）。**没有 local profile 时应用起不来**：`@MapperScan` 需要 `SqlSessionFactory`，没有 DataSource 就报 `Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required`。所以「不接数据库也能启动」不成立，不要依赖。
