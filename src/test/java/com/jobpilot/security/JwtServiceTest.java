@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,14 +22,26 @@ class JwtServiceTest {
                 "jobpilot",
                 Duration.ofHours(2),
                 4,
-                List.of()));
+                List.of(),
+                null,
+                null));
     }
 
     @Test
     void issueAndVerifyReturnsUserId() {
         String token = jwtService.issue("user-a");
 
-        assertThat(jwtService.verifyAndGetUserId(token)).isEqualTo("user-a");
+        assertThat(jwtService.verify(token).userId()).isEqualTo("user-a");
+    }
+
+    @Test
+    void verifyCarriesJtiAndExpiryForRevocation() {
+        Instant before = Instant.now();
+        JwtService.VerifiedToken verified = jwtService.verify(jwtService.issue("user-a"));
+
+        // jti 是撤销黑名单的键；expiresAt 决定黑名单条目的 TTL，必须与签发 TTL 一致
+        assertThat(verified.jti()).isNotBlank();
+        assertThat(verified.expiresAt()).isAfter(before.plus(Duration.ofMinutes(119)));
     }
 
     @Test
@@ -36,7 +49,7 @@ class JwtServiceTest {
         String token = jwtService.issue("user-a");
         String tampered = token.substring(0, token.length() - 1) + "x";
 
-        assertThatThrownBy(() -> jwtService.verifyAndGetUserId(tampered))
+        assertThatThrownBy(() -> jwtService.verify(tampered))
                 .isInstanceOf(JwtService.InvalidTokenException.class);
     }
 
@@ -47,9 +60,11 @@ class JwtServiceTest {
                 "other-app",
                 Duration.ofHours(2),
                 4,
-                List.of()));
+                List.of(),
+                null,
+                null));
 
-        assertThatThrownBy(() -> jwtService.verifyAndGetUserId(other.issue("user-a")))
+        assertThatThrownBy(() -> jwtService.verify(other.issue("user-a")))
                 .isInstanceOf(JwtService.InvalidTokenException.class);
     }
 }

@@ -38,7 +38,7 @@ public class JwtService {
         this.ttl = props.accessTokenTtl();
     }
 
-    /** 签发：subject 放用户 ID（即租户键），jti 供将来做撤销黑名单 */
+    /** 签发：subject 放用户 ID（即租户键），jti 供撤销黑名单（I-1b）使用 */
     public String issue(String userId) {
         Instant now = Instant.now();
         return Jwts.builder()
@@ -51,15 +51,19 @@ public class JwtService {
                 .compact();
     }
 
+    /** 校验通过后的令牌载荷：userId 是租户键，jti 供黑名单比对，expiresAt 供撤销条目定 TTL */
+    public record VerifiedToken(String userId, String jti, Instant expiresAt) {
+    }
+
     /**
-     * 校验并取出 userId。
+     * 校验并取出令牌载荷。
      * <p>
      * 任何失败（过期 / 签名不符 / 结构损坏 / 签发方不符）统一抛 {@link InvalidTokenException}，
      * 不向调用方区分原因——区分等于给攻击者一个探测器。
      * {@code verifyWith(key)} 会把算法限定为与密钥匹配的 HMAC，从而拒绝 {@code alg=none}
      * 与签名算法混淆。
      */
-    public String verifyAndGetUserId(String token) {
+    public VerifiedToken verify(String token) {
         try {
             Claims claims = Jwts.parser()
                     .verifyWith(key)
@@ -71,7 +75,11 @@ public class JwtService {
             if (userId == null || userId.isBlank()) {
                 throw new InvalidTokenException("令牌缺少 subject");
             }
-            return userId;
+            String jti = claims.getId();
+            if (jti == null || jti.isBlank()) {
+                throw new InvalidTokenException("令牌缺少 jti");
+            }
+            return new VerifiedToken(userId, jti, claims.getExpiration().toInstant());
         } catch (JwtException | IllegalArgumentException e) {
             throw new InvalidTokenException("令牌无效");
         }

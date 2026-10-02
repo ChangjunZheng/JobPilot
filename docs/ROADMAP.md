@@ -3,9 +3,9 @@
 | 项 | 内容 |
 |---|---|
 | 最后更新 | 2026-10-02 |
-| 当前迭代 | **I-1（进行中：I-1a 已收口，剩登出撤销与 I-1c 异步化）** |
+| 当前迭代 | **I-1（进行中：I-1a / I-1b 已完成，剩 I-1c 导入异步化）** |
 | 已完成 | I-0 |
-| 最近验证 | 45 个测试通过（含 emoji 代理对滑窗回归）；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
+| 最近验证 | 57 个测试通过（含真实 Redis 的登出撤销端到端）；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
 
 > **本文件是「进度状态」的唯一事实来源。**
 > BRD / PRD / ARCHITECTURE 只回答「要做什么」和「为什么这么做」，**不记录做到哪一步**。
@@ -36,7 +36,7 @@
 - [x] **验证 Redis 连通性** —— 本机用 `D:\Workspace\TechResources\Redis\Redis-8.6.2-Windows-x64-msys2-with-Service`，8.6.2 / 6379 / `bind 127.0.0.1` / **无 `requirepass`**。已用 `redis-cli client list` 确证应用侧 Lettuce（6.8.2.RELEASE）连接真实建立，**配置正确性已验证**
 - [x] **Redis 常驻** —— 已注册为 **Windows 服务**：`RedisService.exe install`，`START_TYPE: AUTO_START`（开机自启），当前 `RUNNING`。服务二进制路径与 `redis.conf`、`--dir` 均为绝对路径（避免服务工作目录不同导致 `dir ./` 落到 `C:\Windows\System32`）。管理命令：`net start Redis` / `net stop Redis`，卸载 `RedisService.exe uninstall`
 - [x] **补 `application-local.yml` 的 `spring.data.redis` 配置块** —— 已补（含 `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` 占位符）；`.example` 同步补齐 `spring.autoconfigure.exclude` 与 `chroma-collection-id`，两边不再漂移
-- [ ] **确认 I-0 数据库有无真实数据** —— 有则需决定租户键如何回填；只有测试数据则直接清库
+- [x] **确认 I-0 数据库有无真实数据** —— 2026-10-02 查实：仅 `u-demo` 演示数据（6 文档 / 9 chunk / 1 测试账号，2026-09-26 产生），按预登记规则**直接清库**（TRUNCATE 四表）。Chroma 中 u-demo 的孤儿向量归 §4.4 清理项处理
 - [ ] （可选）确认 Chroma（:8000）与 Ollama（:11434）是否需启动 —— I-1 编码与单测不依赖，但端到端验证需要
 
 > **关于 Redis 的持久方式**：`D:\Workspace\TechResources\Redis\Redis-8.6.2-Windows-x64-msys2-with-Service\RedisService.exe` 提供三种形态——
@@ -57,11 +57,7 @@
 
 ## 3. 待决策（会卡住 I-1 编码）
 
-> 2026-10-02：前两项已随 I-1a 核心落地决出——**BCrypt（强度 10）**、**HS256 + access TTL 2h**（见 `SecurityProperties` / `application.yml`）。按更新约定 5，结论正式归档到 ARCHITECTURE 与 §2.1 的 ADR 条目一并处理。
-
-- [ ] **存量数据迁移策略**（取决于 §2「确认 I-0 数据库有无真实数据」的确认结果）
-
-> 其余待决项见 [PRD §12](./PRD.md)。
+> 2026-10-02：本节清空——密码哈希（BCrypt 强度 10）与 JWT 参数（HS256 + access TTL 2h）随 I-1a 落地；存量数据经查证仅为演示数据并已清库，无迁移需求。结论正式归档到 ARCHITECTURE 的动作与 §2.1 的 ADR 条目一并处理。其余待决项见 [PRD §12](./PRD.md)。
 
 ---
 
@@ -71,7 +67,7 @@
 
 ### 4.1 I-1a · 租户隔离骨架（优先，单独就有价值）
 
-**状态：** `[x]` I-1a 安全验收完成；I-1b 登出撤销、I-1c 异步导入仍未开始。
+**状态：** `[~]` I-1a 全部完成；I-1b（登出撤销 / 隐私明示 / 安全日志）已完成；剩 I-1c 导入异步化。
 
 **做完这一步，现有接口就安全了**——它单独消除了「`userId` 由请求体传入」这个安全缺口。
 
@@ -97,13 +93,12 @@
 - [x] 租户拦截器 SQL 实证测试：`selectById` / `selectByIds` / `selectList` 均不跨租户
 - [x] 测试空知识库关键词降级（避免 `IN ()` 类问题）—— 单元级 `emptyReadyDocumentSetSkipsChunkQuery…` + 集成级 `KeywordFallbackDegradationIntegrationTest` 双层锁定
 - [x] 修复 `GlobalExceptionHandler` 的通用异常响应：未知 HTTP 方法返回 405，未知异常不暴露异常类名
-- [ ] 登出与 Redis jti 撤销（I-1b）
-
-- [x] 注册接口（`168232a`，最小实现；**隐私政策与数据用途明示未做**，见下行）
-- [x] 登录接口（`168232a`）；登出未做（见 I-1b 剩余项）
-- [ ] 注册流程的隐私政策与数据用途明示文案
-- [x] JWT 签发与校验（`168232a`）；**登出后原凭证立即失效**（Redis jti 黑名单）未做，随登出一并完成
-- [x] 未认证访问业务接口返回 401；跨租户返回 404（手工 + `ThreadLocalCleanupTest` / `TenantIsolationIntegrationTest` 锁定）；**安全日志未接**
+- [x] 登出与 Redis jti 撤销 —— `POST /api/v1/auth/logout` + `TokenBlacklistService`（条目 TTL = 令牌剩余寿命；Redis 不可用 fail-open，取舍见类注释）；端到端回归 `LogoutIntegrationTest`，Redis 不可用的 CI 环境整体跳过（拦截器层有 mock 兜底用例）
+- [x] 注册接口（`168232a`）
+- [x] 登录 / 登出接口（登录 `168232a`，登出 I-1b）
+- [x] 注册流程的隐私政策与数据用途明示 —— `GET /api/v1/auth/privacy-notice` + 注册强制 `privacyConsent=true`（文案在 `application.yml`；同意版本持久化留痕挂 §4.4）
+- [x] JWT 签发与校验 + **登出后原凭证立即失效**（`168232a` + I-1b）
+- [x] 未认证返回 401；跨租户返回 404（测试锁定）；两者均写 `SECURITY` 前缀安全日志（`GlobalExceptionHandler`，I-1b）
 
 ### 4.3 I-1c · 导入异步化
 
@@ -117,6 +112,7 @@
 ### 4.4 I-1 · 顺带清理
 
 - [ ] 20 条评测集（JSONL，含失败归因分类；格式与归因口径见 [PRD §9.2](./PRD.md)）
+- [ ] consent 版本持久化留痕（合规）：注册当前只校验同意，未存「同意的版本号 + 时间」，正式对外开放前补
 - [ ] `ApiResponse` 补 `requestId` 字段
 - [ ] Testcontainers 集成测试基类（顺带解决 `mvn test` 必须依赖本机 MySQL）
 - [ ] 中文关键词 2 字窗口

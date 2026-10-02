@@ -43,6 +43,8 @@ class PasswordHasherTest {
                 "jobpilot",
                 Duration.ofHours(2),
                 4,
-                List.of());
+                List.of(),
+                null,
+                null);
     }
 }

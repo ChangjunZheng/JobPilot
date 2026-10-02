@@ -3,6 +3,11 @@ spring:
     name: jobpilot
   profiles:
     default: local
+  data:
+    redis:
+      # 撤销黑名单等命令的超时：Redis 不可达时快速失败走 fail-open（TokenBlacklistService），
+      # 不吃 Lettuce 默认 60s 命令超时
+      timeout: 2s
 
 server:
   port: ${SERVER_PORT:8080}
@@ -35,7 +40,15 @@ jobpilot:
       - /api/v1/health
       - /api/v1/auth/register
       - /api/v1/auth/login
+      - /api/v1/auth/privacy-notice
       - /actuator/health
+    # 隐私政策与数据用途说明（I-1b）：文案是非敏感内容，直接入库；改动时同步递增版本号
+    privacy-notice-version: "2026-10-02"
+    privacy-notice: |
+      注册与使用本服务时，我们这样处理你的数据：
+      1. 注册收集邮箱（作为账号唯一标识）与密码（仅以加盐哈希存储，任何人（包括我们）都无法看到明文）；
+      2. 你导入的简历、JD 等材料仅用于向你本人提供检索与问答，不用于训练模型，不向其他用户提供；
+      3. 你可以随时导出或删除自己的全部数据，删除后服务端副本一并清除。
   rag:
     ollama-base-url: ${JOBPILOT_RAG_OLLAMA_URL:http://localhost:11434}
     embedding-model: ${JOBPILOT_RAG_EMBEDDING_MODEL:bge-m3}

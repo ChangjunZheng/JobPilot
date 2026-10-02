@@ -19,7 +19,11 @@ public record SecurityProperties(
         Duration accessTokenTtl,
         int bcryptStrength,
         /** 无需认证的路径，Ant 风格 */
-        List<String> publicPaths
+        List<String> publicPaths,
+        /** 当前隐私政策与数据用途说明的文案（注册时向用户明示） */
+        String privacyNotice,
+        /** 隐私政策版本号，随文案更新递增 */
+        String privacyNoticeVersion
 ) {
 
     /** 密钥缺失或过短（HS256 要求 ≥ 256 位）时给出可操作的错误，而不是等到签发时才炸 */

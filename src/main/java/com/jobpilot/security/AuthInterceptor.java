@@ -23,10 +23,16 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
-    private final JwtService jwtService;
+    /** 登出接口据此撤销当前令牌；由 {@link #preHandle} 在认证通过后写入 request 属性 */
+    public static final String ATTR_JTI = AuthInterceptor.class.getName() + ".jti";
+    public static final String ATTR_EXPIRES_AT = AuthInterceptor.class.getName() + ".expiresAt";
 
-    public AuthInterceptor(JwtService jwtService) {
+    private final JwtService jwtService;
+    private final TokenBlacklistService tokenBlacklist;
+
+    public AuthInterceptor(JwtService jwtService, TokenBlacklistService tokenBlacklist) {
         this.jwtService = jwtService;
+        this.tokenBlacklist = tokenBlacklist;
     }
 
     @Override
@@ -36,14 +42,19 @@ public class AuthInterceptor implements HandlerInterceptor {
             throw new UnauthorizedException("缺少访问令牌");
         }
         String token = header.substring(BEARER_PREFIX.length()).trim();
-        String userId;
+        JwtService.VerifiedToken verified;
         try {
-            userId = jwtService.verifyAndGetUserId(token);
+            verified = jwtService.verify(token);
         } catch (JwtService.InvalidTokenException e) {
             throw new UnauthorizedException("令牌无效或已过期");
         }
+        if (tokenBlacklist.isRevoked(verified.jti())) {
+            throw new UnauthorizedException("令牌已注销");
+        }
         // 所有可能抛异常的步骤都已走完，到这里才写上下文
-        UserContext.set(userId);
+        UserContext.set(verified.userId());
+        request.setAttribute(ATTR_JTI, verified.jti());
+        request.setAttribute(ATTR_EXPIRES_AT, verified.expiresAt());
         return true;
     }
 
