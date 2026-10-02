@@ -1,6 +1,8 @@
 package com.jobpilot.domain;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -20,7 +22,16 @@ public class KbDocumentEntity {
     private String status;
     private Integer indexVersion;
     private Integer chunkCount;
+    /** 导入原文（I-1c 起落库供 worker 异步索引）。select=false：状态查询与检索回捞不拖大字段，认领走原生 SQL 仍会带上 */
+    @TableField(select = false)
+    private String content;
+    /** ALWAYS：终态写入要能把 error_message 置回 NULL（成功路径） */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String errorMessage;
+    /** ALWAYS：重排队后回到 PENDING 要能把 next_retry_at 置回 NULL（READY/FAILED 终态） */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private LocalDateTime nextRetryAt;
+    private Integer retryCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -94,6 +105,30 @@ public class KbDocumentEntity {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public String getContent() {
+        return content;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    public LocalDateTime getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(LocalDateTime nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    public Integer getRetryCount() {
+        return retryCount;
+    }
+
+    public void setRetryCount(Integer retryCount) {
+        this.retryCount = retryCount;
     }
 
     public LocalDateTime getCreatedAt() {

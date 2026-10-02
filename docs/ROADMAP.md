@@ -3,9 +3,9 @@
 | 项 | 内容 |
 |---|---|
 | 最后更新 | 2026-10-02 |
-| 当前迭代 | **I-1（进行中：I-1a / I-1b 已完成，剩 I-1c 导入异步化）** |
+| 当前迭代 | **I-1（出口已达成：I-1a/I-1b/I-1c 完成，剩 §4.4 顺带清理）** |
 | 已完成 | I-0 |
-| 最近验证 | 58 个测试通过（含真实 Redis 的登出撤销端到端）；`check-arch.sh` 全部通过；真实 MySQL 租户 SQL 与 A/B MockMvc 隔离测试通过；ThreadLocal 跨请求清理通过 |
+| 最近验证 | 67 个测试通过（含真实 MySQL 认领/上限/接管与 202 契约回归）；`check-arch.sh` 全部通过；真实 Redis 登出撤销端到端通过 |
 
 > **本文件是「进度状态」的唯一事实来源。**
 > BRD / PRD / ARCHITECTURE 只回答「要做什么」和「为什么这么做」，**不记录做到哪一步**。
@@ -19,7 +19,7 @@
 | 迭代 | 主题 | 状态 | 出口（一句话） |
 |---|---|---|---|
 | **I-0** | 技术基线 + RAG 最小闭环 | ✅ **已完成** | 导入 → 嵌入 → 向量检索 → 引用问答的 API 闭环可用 |
-| **I-1** | 账号 + 租户隔离 + 导入异步化 | [~] **I-1a 核心进行中** | 新用户可注册并完成导入→问答；跨租户越权用例全通过 |
+| **I-1** | 账号 + 租户隔离 + 导入异步化 | [~] **I-1a/I-1b/I-1c 完成，§4.4 清理中** | 新用户可注册并完成导入→问答；跨租户越权用例全通过 |
 | **I-2** | Agent 最小闭环 | ⬜ 未开始 | 自研 ReAct runner + `knowledge_search` + JD 分析 + trace + HITL |
 | **I-3** | 长期记忆与投递管理 | ⬜ 未开始 | Memory + 投递 CRUD + 用量计量，全部通过隔离用例 |
 | **I-4** | 产品化外壳 | ⬜ 未开始 | 四个页面可用；10~20 个真实 JD 端到端演练通过 |
@@ -102,12 +102,14 @@
 
 ### 4.3 I-1c · 导入异步化
 
-- [ ] 导入改为「落 `PENDING` 即返回 `202` + `documentId`」，索引移出请求线程
-- [ ] DB 队列 worker：`SELECT ... FOR UPDATE SKIP LOCKED` 认领
-- [ ] 重试状态存行内（`retry_count` / `next_retry_at`）
-- [ ] **启动时接管僵死任务**：超时仍为 `PROCESSING` 的行重置为 `PENDING`
-- [ ] 每租户并发上限，防单租户批量导入饿死其他租户
-- [ ] **不使用 `@Async`**，不引入消息队列（理由见 [ARCHITECTURE §4.1](./ARCHITECTURE.md)）
+**状态：** `[x]` 全部完成（2026-10-02，67 个测试通过）。
+
+- [x] 导入改为「落 `PENDING` 即返回 `202` + `documentId`」，索引移出请求线程 —— `KnowledgeController` 202 + `DocumentIngestService.enqueue`；原文落 `kb_document.content`（worker 的事实来源，reindex 前提）
+- [x] DB 队列 worker：`SELECT ... FOR UPDATE SKIP LOCKED` 认领 —— `IngestWorker` + `KbDocumentMapper.selectClaimCandidates`（`@InterceptorIgnore` 的四个跨租户面，论证见 mapper 注释）
+- [x] 重试状态存行内（`retry_count` / `next_retry_at`）—— V3 迁移；确定性校验失败（空白内容等）直接 FAILED 不消耗重试，暂态失败指数退避（`retryBackoff` × 2^n）
+- [x] **启动时接管僵死任务**：超时仍为 `PROCESSING` 的行重置为 `PENDING` —— `resetStaleProcessing`（按 `updated_at` 判僵死）
+- [x] 每租户并发上限，防单租户批量导入饿死其他租户 —— 认领时比对在途计数（`maxPerTenant`，默认 2）
+- [x] **不使用 `@Async`**，不引入消息队列（理由见 [ARCHITECTURE §4.1](./ARCHITECTURE.md)）—— 调度用自建 `ScheduledExecutorService`（守护线程池），行即消息
 
 ### 4.4 I-1 · 顺带清理
 

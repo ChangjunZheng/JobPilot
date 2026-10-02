@@ -1,7 +1,59 @@
 package com.jobpilot.mapper;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.jobpilot.domain.KbDocumentEntity;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 public interface KbDocumentMapper extends BaseMapper<KbDocumentEntity> {
+
+    /**
+     * 以下四个方法是 I-1c 的 DB 队列操作，运行在 worker 线程上——
+     * 那里没有 UserContext，租户拦截器 fail-closed 会直接抛异常，
+     * 因此显式声明 {@code @InterceptorIgnore(tenantLine)}。
+     * <p>
+     * 租户安全不受影响：认领的是「行自带的 user_id」，处理阶段 worker 会把它
+     * 写回 {@code UserContext}，此后所有受租户拦截器保护的读写照常注入过滤条件。
+     * 这四条 SQL 是仅有的跨租户面，改动任何一条都要重新过一遍这个论证。
+     */
+
+    /**
+     * 认领候选：PENDING 且到期，按先来先服务。
+     * {@code FOR UPDATE SKIP LOCKED} 是队列语义的核心——多个 worker（线程或实例）
+     * 并发扫描时，已锁定的行被直接跳过而不是阻塞，天然不重复认领。
+     * 必须在事务内调用，锁随认领事务提交而释放。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT * FROM kb_document
+            WHERE status = 'PENDING'
+              AND (next_retry_at IS NULL OR next_retry_at <= #{now})
+            ORDER BY created_at
+            LIMIT #{limit}
+            FOR UPDATE SKIP LOCKED
+            """)
+    List<KbDocumentEntity> selectClaimCandidates(@Param("now") LocalDateTime now, @Param("limit") int limit);
+
+    /** 每租户在途（PROCESSING）计数，认领前比对 maxPerTenant，防单租户占满全部 worker */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("SELECT COUNT(*) FROM kb_document WHERE user_id = #{userId} AND status = 'PROCESSING'")
+    int countProcessingByTenant(@Param("userId") String userId);
+
+    /** CAS 式认领：仅当行仍是 PENDING 时翻成 PROCESSING；返回 0 说明被并发改走，放弃该候选 */
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("UPDATE kb_document SET status = 'PROCESSING' WHERE id = #{id} AND status = 'PENDING'")
+    int markProcessing(@Param("id") String id);
+
+    /** 启动接管：JVM 重启遗留的 PROCESSING 行按 updated_at 判僵死，重置回 PENDING 立即可认领 */
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("""
+            UPDATE kb_document SET status = 'PENDING', next_retry_at = #{now}
+            WHERE status = 'PROCESSING' AND updated_at < #{cutoff}
+            """)
+    int resetStaleProcessing(@Param("now") LocalDateTime now, @Param("cutoff") LocalDateTime cutoff);
 }

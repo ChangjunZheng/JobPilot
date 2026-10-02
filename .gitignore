@@ -42,6 +42,7 @@ desktop.ini
 .workbuddy/
 .mimosa/
 .zcode/
+.firecrawl/
 
 # Local data (向量库 / 索引 / 上传文件)
 data/

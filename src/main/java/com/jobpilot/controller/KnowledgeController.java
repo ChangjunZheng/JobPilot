@@ -12,12 +12,14 @@ import com.jobpilot.knowledge.KnowledgeRetrievalService;
 import com.jobpilot.knowledge.RagAskService;
 import com.jobpilot.security.UserContext;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -98,13 +100,14 @@ public class KnowledgeController {
         }
     }
 
-    /** 导入并同步完成索引；status=FAILED 时 errorMessage 给出原因 */
+    /** 入队导入（I-1c）：落 PENDING 即返回 202，索引由后台 worker 执行；进度用 GET /documents/{id} 查询 */
+    @ResponseStatus(HttpStatus.ACCEPTED)
     @PostMapping("/documents")
     public ApiResponse<IngestResponse> ingest(@RequestBody @Validated IngestRequest request) {
         String docType = request.docType() == null || request.docType().isBlank()
                 ? guessDocType(request.name())
                 : request.docType().toUpperCase();
-        KbDocumentEntity doc = ingestService.ingest(new IngestCommand(
+        KbDocumentEntity doc = ingestService.enqueue(new IngestCommand(
                 UserContext.require(), request.name(), docType, request.tags(), request.content()));
         return ApiResponse.ok(IngestResponse.from(doc));
     }

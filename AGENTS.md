@@ -61,12 +61,12 @@ RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌�
 ## API
 
 - `GET /api/v1/health`、`GET /actuator/health`（exposure 仅 `health,info`，`show-details: never`）
-- `POST /api/v1/knowledge/documents` 提交导入。**I-0 当前是同步索引；I-1 改为异步**——落 `PENDING` 后立即返回 `202` + `documentId`，索引在后台任务中完成
-- `GET /api/v1/knowledge/documents/{id}` 索引状态查询（导入成功只代表任务创建，状态必须可查；异步化后这个接口从"辅助"变成"必需"）
+- `POST /api/v1/knowledge/documents` 提交导入（**I-1c 已异步化**）：落 `PENDING` 后立即返回 `202` + `documentId`，由 DB 队列 worker（`IngestWorker`，`jobpilot.ingest.*` 配置）在后台索引；重试退避 / 每租户上限 / 僵死接管见 `IngestProperties` 与 `docs/ROADMAP.md` §4.3
+- `GET /api/v1/knowledge/documents/{id}` 索引状态查询——异步化后这是跟踪进度的**必需**接口（202 只代表入队成功）
 - `POST /api/v1/knowledge/search` 纯检索，响应带 `searchMode` / `degraded`
 - `POST /api/v1/knowledge/ask` 引用问答，响应带 `answer` + `citations` + `searchMode` / `degraded`
 
-`userId` **在 I-0 中由请求体传入（`@NotBlank String userId`）——这是单用户时期的临时形态，I-1 必须移除**：改为从凭证解析、经 `UserContext` 传递，Controller 签名不再接受 `userId`。这是安全缺陷而非优化项，见 `docs/ARCHITECTURE.md` §1.7。`docType` 不传时按文件名后缀猜（`.md`/`.markdown` → `MARKDOWN`，否则 `PLAIN_TEXT`）。**空白 content 不是 400**，而是按 PRD-FP-1.1 落成 `FAILED` 文档。
+`userId` **已于 I-1a 从请求体移除**：身份从 JWT 解析、经 `UserContext` 传递，Controller 签名不接受 `userId`（当初的请求体形态是安全缺陷，见 `docs/ARCHITECTURE.md` §1.7）。`docType` 不传时按文件名后缀猜（`.md`/`.markdown` → `MARKDOWN`，否则 `PLAIN_TEXT`）。**空白 content 不是 400**：按 PRD-FP-1.1 入队后由 worker 判为 `FAILED`（确定性错误不重试）。
 
 ## 架构要点
 

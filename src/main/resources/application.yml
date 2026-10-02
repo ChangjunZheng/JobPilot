@@ -30,6 +30,15 @@ jobpilot:
   ai:
     chat-model: ${JOBPILOT_AI_CHAT_MODEL:deepseek-chat}
     max-iterations: ${JOBPILOT_AI_MAX_ITERATIONS:5}
+  ingest:
+    # I-1c DB 队列 worker：任务行即消息，无 @Async / 无 MQ
+    enabled: true
+    poll-interval: 2s
+    worker-threads: 2
+    max-retries: 3
+    retry-backoff: 30s
+    max-per-tenant: 2
+    stale-processing-timeout: 10m
   security:
     # 不提供默认密钥：JWT 密钥必须通过环境变量注入，避免把可伪造令牌的密钥提交进 git。
     jwt-secret: ${JOBPILOT_SECURITY_JWT_SECRET:}

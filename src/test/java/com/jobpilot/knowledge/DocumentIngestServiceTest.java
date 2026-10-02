@@ -1,7 +1,9 @@
 package com.jobpilot.knowledge;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.jobpilot.ai.EmbeddingPort;
 import com.jobpilot.ai.VectorStorePort;
+import com.jobpilot.config.IngestProperties;
 import com.jobpilot.config.RagProperties;
 import com.jobpilot.domain.KbChunkEntity;
 import com.jobpilot.domain.KbDocumentEntity;
@@ -11,11 +13,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -25,6 +32,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DocumentIngestServiceTest {
+
+    private static final IngestProperties INGEST_PROPS = new IngestProperties(
+            true, Duration.ofSeconds(2), 2, 3, Duration.ofSeconds(30), 2, Duration.ofMinutes(10));
 
     private KbDocumentMapper documentMapper;
     private KbChunkMapper chunkMapper;
@@ -40,9 +50,9 @@ class DocumentIngestServiceTest {
         vectorStore = mock(VectorStorePort.class);
         RagProperties props = new RagProperties(
                 "http://localhost:11434", "bge-m3", "qwen2.5:3b",
-                "http://localhost:8000", "jobpilot_chunks", null, 500, 100, 5, 0.45,2);
+                "http://localhost:8000", "jobpilot_chunks", null, 500, 100, 5, 0.45, 2);
         service = new DocumentIngestService(
-                documentMapper, chunkMapper, new ChunkSplitter(), embeddingPort, vectorStore, props);
+                documentMapper, chunkMapper, new ChunkSplitter(), embeddingPort, vectorStore, props, INGEST_PROPS);
 
         // 模拟 MyBatis-Plus ASSIGN_UUID：insert 时补齐文档 ID
         doAnswer(invocation -> {
@@ -52,41 +62,121 @@ class DocumentIngestServiceTest {
             }
             return 1;
         }).when(documentMapper).insert(any(KbDocumentEntity.class));
+        when(documentMapper.update(any(KbDocumentEntity.class), any(Wrapper.class))).thenReturn(1);
+        when(chunkMapper.delete(any(Wrapper.class))).thenReturn(0);
         when(embeddingPort.embed(any())).thenReturn(List.of(0.1, 0.2));
     }
 
     @Test
-    void happyPathMarksReadyWithIdempotentVectorIds() {
-        KbDocumentEntity doc = service.ingest(new IngestCommand(
-                "u1", "简历.md", "MARKDOWN", null, "# 技能\n\nJava / Spring Boot / RAG\n"));
+    void enqueueLandsPendingRowWithOriginalContent() {
+        KbDocumentEntity doc = service.enqueue(new IngestCommand(
+                "u1", "简历.md", "MARKDOWN", null, "# 技能\n\nJava\n"));
 
-        assertThat(doc.getStatus()).isEqualTo("READY");
-        assertThat(doc.getChunkCount()).isPositive();
-
-        ArgumentCaptor<String> ids = ArgumentCaptor.forClass(String.class);
-        verify(vectorStore, atLeastOnce()).upsert(ids.capture(), any(), anyMap());
-        // 向量 ID 形如 docId#seq#indexVersion，重建索引走 upsert 幂等
-        assertThat(ids.getAllValues()).allMatch(id -> id.startsWith("doc-test#") && id.endsWith("#1"));
-    }
-
-    @Test
-    void blankContentGoesToFailedWithoutChunks() {
-        KbDocumentEntity doc = service.ingest(
-                new IngestCommand("u1", "空.txt", "PLAIN_TEXT", null, "   "));
-
-        assertThat(doc.getStatus()).isEqualTo("FAILED");
-        assertThat(doc.getErrorMessage()).contains("提取文本为空");
+        ArgumentCaptor<KbDocumentEntity> inserted = ArgumentCaptor.forClass(KbDocumentEntity.class);
+        verify(documentMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getStatus()).isEqualTo("PENDING");
+        assertThat(inserted.getValue().getContent()).isEqualTo("# 技能\n\nJava\n");
+        assertThat(inserted.getValue().getRetryCount()).isZero();
+        assertThat(doc.getId()).isEqualTo("doc-test");
+        // 入队不做任何索引动作
+        verify(vectorStore, never()).upsert(anyString(), any(), anyMap());
         verify(chunkMapper, never()).insert(any(KbChunkEntity.class));
     }
 
     @Test
-    void embeddingOutageMarksFailed() {
+    void processMarksReadyAndWritesIdempotentVectorIds() {
+        KbDocumentEntity claimed = claimedTask(0, "# 技能\n\nJava\n");
+
+        service.process(claimed);
+
+        ArgumentCaptor<KbDocumentEntity> saved = savedDocument();
+        assertThat(saved.getValue().getStatus()).isEqualTo("READY");
+        assertThat(saved.getValue().getChunkCount()).isPositive();
+        assertThat(saved.getValue().getErrorMessage()).isNull();
+        assertThat(saved.getValue().getNextRetryAt()).isNull();
+
+        ArgumentCaptor<String> ids = ArgumentCaptor.forClass(String.class);
+        verify(vectorStore, atLeastOnce()).upsert(ids.capture(), any(), anyMap());
+        // 向量 ID 形如 docId#seq#indexVersion，重试重建走 upsert 幂等
+        assertThat(ids.getAllValues()).allMatch(id -> id.startsWith("doc-test#") && id.endsWith("#1"));
+    }
+
+    @Test
+    void transientFailureRequeuesWithExponentialBackoff() {
         doThrow(new IllegalStateException("Ollama 离线")).when(embeddingPort).embed(any());
+        KbDocumentEntity claimed = claimedTask(0, "# 技能\n\nJava\n");
 
-        KbDocumentEntity doc = service.ingest(new IngestCommand(
-                "u1", "简历.md", "MARKDOWN", null, "# 技能\n\nJava\n"));
+        service.process(claimed);
 
-        assertThat(doc.getStatus()).isEqualTo("FAILED");
-        assertThat(doc.getErrorMessage()).contains("Ollama 离线");
+        ArgumentCaptor<KbDocumentEntity> saved = savedDocument();
+        assertThat(saved.getValue().getStatus()).isEqualTo("PENDING");
+        assertThat(saved.getValue().getRetryCount()).isEqualTo(1);
+        assertThat(saved.getValue().getErrorMessage()).contains("Ollama 离线");
+        // 首次重排队退避 = retryBackoff × 2^0 = 30s
+        assertThat(saved.getValue().getNextRetryAt())
+                .isCloseTo(LocalDateTime.now().plusSeconds(30), within(Duration.ofSeconds(5)));
+        // 幂等清理只发生一次（attempt 开头）；重排队路径不再重复删，残留由下次尝试开头清
+        verify(chunkMapper).delete(any(Wrapper.class));
+    }
+
+    @Test
+    void exhaustedRetriesLandFailed() {
+        doThrow(new IllegalStateException("Chroma 不可达")).when(vectorStore).upsert(anyString(), any(), anyMap());
+        KbDocumentEntity claimed = claimedTask(3, "# 技能\n\nJava\n"); // 已重排 3 次，本次再失败即耗尽
+
+        service.process(claimed);
+
+        ArgumentCaptor<KbDocumentEntity> saved = savedDocument();
+        assertThat(saved.getValue().getStatus()).isEqualTo("FAILED");
+        assertThat(saved.getValue().getRetryCount()).isEqualTo(4);
+        assertThat(saved.getValue().getNextRetryAt()).isNull();
+        assertThat(saved.getValue().getErrorMessage()).contains("Chroma 不可达");
+        // 开头的幂等清理 + 终态 FAILED 的残留清理
+        org.mockito.Mockito.verify(chunkMapper, org.mockito.Mockito.times(2)).delete(any(Wrapper.class));
+    }
+
+    @Test
+    void blankContentFailsPermanentlyWithoutRetry() {
+        // 确定性校验失败重试也不可能修好：直接 FAILED，不消耗重试语义
+        KbDocumentEntity claimed = claimedTask(0, "   ");
+
+        service.process(claimed);
+
+        ArgumentCaptor<KbDocumentEntity> saved = savedDocument();
+        assertThat(saved.getValue().getStatus()).isEqualTo("FAILED");
+        assertThat(saved.getValue().getRetryCount()).isZero();
+        assertThat(saved.getValue().getNextRetryAt()).isNull();
+        assertThat(saved.getValue().getErrorMessage()).contains("提取文本为空");
+        verify(chunkMapper, never()).insert(any(KbChunkEntity.class));
+    }
+
+    @Test
+    void processRejectsUnclaimedTask() {
+        KbDocumentEntity pending = claimedTask(0, "# 技能");
+        pending.setStatus("PENDING");
+
+        assertThatThrownBy(() -> service.process(pending))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("PROCESSING");
+    }
+
+    private KbDocumentEntity claimedTask(int retryCount, String content) {
+        KbDocumentEntity doc = new KbDocumentEntity();
+        doc.setId("doc-test");
+        doc.setUserId("u1");
+        doc.setName("简历.md");
+        doc.setDocType("MARKDOWN");
+        doc.setStatus("PROCESSING");
+        doc.setIndexVersion(1);
+        doc.setChunkCount(0);
+        doc.setRetryCount(retryCount);
+        doc.setContent(content);
+        return doc;
+    }
+
+    private ArgumentCaptor<KbDocumentEntity> savedDocument() {
+        ArgumentCaptor<KbDocumentEntity> captor = ArgumentCaptor.forClass(KbDocumentEntity.class);
+        verify(documentMapper).update(captor.capture(), any(Wrapper.class));
+        return captor;
     }
 }
