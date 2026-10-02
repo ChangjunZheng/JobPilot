@@ -75,7 +75,7 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail("METHOD_NOT_ALLOWED", "不支持的请求方法"));
     }
 
-    // 兜底，处理所有未预期的异常
+    // 兜底，处理所有未预期的异常；堆栈进日志，不进响应
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleUnexpected(Exception e) {
