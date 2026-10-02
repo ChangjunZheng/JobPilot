@@ -2,10 +2,10 @@
 
 | 项 | 内容 |
 |---|---|
-| 最后更新 | 2026-10-02 |
-| 当前迭代 | **I-1（出口已达成：I-1a/I-1b/I-1c 完成，剩 §4.4 顺带清理）** |
-| 已完成 | I-0 |
-| 最近验证 | 67 个测试通过（含真实 MySQL 认领/上限/接管与 202 契约回归）；`check-arch.sh` 全部通过；真实 Redis 登出撤销端到端通过 |
+| 最后更新 | 2026-10-03 |
+| 当前迭代 | **I-1 已完成（I-1a/I-1b/I-1c + §4.4 全部收口）；下一个里程碑 I-2（Agent 最小闭环）** |
+| 已完成 | I-0、I-1 |
+| 最近验证 | 80 个测试通过（含真实 MySQL 越权/降级/异步认领、评测集结构校验、候选池与码点窗口回归）；`check-arch.sh` 全部通过；真实 Redis 登出撤销端到端通过 |
 
 > **本文件是「进度状态」的唯一事实来源。**
 > BRD / PRD / ARCHITECTURE 只回答「要做什么」和「为什么这么做」，**不记录做到哪一步**。
@@ -19,12 +19,12 @@
 | 迭代 | 主题 | 状态 | 出口（一句话） |
 |---|---|---|---|
 | **I-0** | 技术基线 + RAG 最小闭环 | ✅ **已完成** | 导入 → 嵌入 → 向量检索 → 引用问答的 API 闭环可用 |
-| **I-1** | 账号 + 租户隔离 + 导入异步化 | [~] **I-1a/I-1b/I-1c 完成，§4.4 清理中** | 新用户可注册并完成导入→问答；跨租户越权用例全通过 |
+| **I-1** | 账号 + 租户隔离 + 导入异步化 | ✅ **已完成** | 新用户可注册并完成导入→问答；跨租户越权用例全通过 |
 | **I-2** | Agent 最小闭环 | ⬜ 未开始 | 自研 ReAct runner + `knowledge_search` + JD 分析 + trace + HITL |
 | **I-3** | 长期记忆与投递管理 | ⬜ 未开始 | Memory + 投递 CRUD + 用量计量，全部通过隔离用例 |
 | **I-4** | 产品化外壳 | ⬜ 未开始 | 四个页面可用；10~20 个真实 JD 端到端演练通过 |
 | **I-5** | 商业化与合规收口 | ⬜ 未开始 | 配额、订阅计费、数据导出自助化、SSE |
-| **对外发布** | — | ⬜ **锁定中** | **仅在 I-1 完成后开放注册** |
+| **对外发布** | — | ⬜ **前置已满足，待决策** | 原定「I-1 完成后开放注册」——I-1 已于 2026-10-03 完成，是否解锁由产品决定，不由开发窗口自行放开 |
 
 > **I-1 是发布前置**：在租户隔离落地前不对外开放注册，也不接受真实用户的私密材料。理由见 [ARCHITECTURE §1.7](./ARCHITECTURE.md)。
 
@@ -113,13 +113,15 @@
 
 ### 4.4 I-1 · 顺带清理
 
-- [ ] 20 条评测集（JSONL，含失败归因分类；格式与归因口径见 [PRD §9.2](./PRD.md)）
-- [ ] consent 版本持久化留痕（合规）：注册当前只校验同意，未存「同意的版本号 + 时间」，正式对外开放前补
-- [ ] `ApiResponse` 补 `requestId` 字段
-- [ ] Testcontainers 集成测试基类（顺带解决 `mvn test` 必须依赖本机 MySQL）
-- [ ] 中文关键词 2 字窗口
-- [ ] 向量路径候选池
-- [ ] reindex / 孤儿向量清理
+**状态：** `[x]` 七项全部完成（2026-10-03，80 个测试通过）。
+
+- [x] 20 条评测集（JSONL，含失败归因分类；格式与归因口径见 [PRD §9.2](./PRD.md)）—— 语料 `eval-corpus.md`（P01~P20，含 5 个**有意留的干扰项**）+ `eval-set.jsonl`（8 事实 / 5 比较 / 4 综合 / 3 无答案）+ `RetrievalEvalRunner`（`EVAL_RUN=true` 手动跑，需真实 Ollama/Chroma）+ `EvalSetStructureTest`（**不依赖基础设施**，随日常 `mvn test` 校验格式、配比与期望段落是否存在）
+- [x] consent 版本持久化留痕（合规）—— V4 迁移给 `user_account` 加 `privacy_version` / `privacy_consented_at`；版本号取 `jobpilot.security.privacy-notice-version`，控制器传入、服务落库
+- [x] `ApiResponse` 补 `requestId` 字段 —— `RequestIdFilter`（`HIGHEST_PRECEDENCE`）写 MDC + `X-Request-Id` 响应头，`ApiResponse` 工厂方法直接读 MDC；用 Filter 而非拦截器是因为要覆盖 `/error` 与 401 等全部路径
+- [x] Testcontainers 集成测试基类 —— `MySqlIntegrationTestBase`：Docker 可用时起 `mysql:8.4` 容器接管数据源，不可用时**回退** `application-local.yml` 本机 MySQL。**Docker 路径本地未验证（本机 Docker Desktop 未运行），已验证的是回退路径**
+- [x] 中文关键词 2 字窗口 —— `extractKeywords` 按码点滑窗（汉字 2 字、拉丁 3 字），窗口不会切进代理对
+- [x] 向量路径候选池 —— `CANDIDATE_POOL_FACTOR = 3`：放大取候选，阈值截断与 READY 过滤后再 `limit(topK)`
+- [x] reindex / 孤儿向量清理 —— 端口加 `deleteByDocumentId`；`process` 开头幂等清场升级为「Chunk + 旧向量」双清，终态清场失败降级为尽力而为（READY 过滤兜底）；`POST /documents/{id}/reindex` 条件更新（`status IN (READY, FAILED)`）兜住「查询后被认领」的竞态
 
 ---
 
@@ -128,11 +130,11 @@
 | 缺陷 | 影响 | 位置 |
 |---|---|---|
 | `userId` 由请求体传入 **✅ 已修复（`168232a`）** | 安全缺陷——客户端可任意指定身份 | `KnowledgeController` |
-| 索引同步执行 | 单个请求占用线程数十秒到数分钟；被反代默认超时切断 | `DocumentIngestService` |
-| `PROCESSING` 僵死行无接管 | JVM 重启后该文档永久停留在中间态 | 同上 |
-| `ApiResponse` 缺 `requestId` | 用户报障无法关联服务端日志 | `common` |
-| 文档类型分发散在三处 | 新增格式时 `ChunkSplitter` 会静默按纯文本切 | `KnowledgeController` / `DocumentIngestService` / `ChunkSplitter` |
-| `mvn test` 全量上下文依赖本机 MySQL | CI 与协作成本 | 测试基础设施 |
+| 索引同步执行 **✅ 已修复（I-1c）** | 单个请求占用线程数十秒到数分钟；被反代默认超时切断 | `DocumentIngestService`（改为 202 + DB 队列 worker） |
+| `PROCESSING` 僵死行无接管 **✅ 已修复（I-1c）** | JVM 重启后该文档永久停留在中间态 | `IngestWorker.resetStaleProcessing` |
+| `ApiResponse` 缺 `requestId` **✅ 已修复** | 用户报障无法关联服务端日志 | `RequestIdFilter` / `common` |
+| 文档类型分发散在三处 | 新增格式时 `ChunkSplitter` 会静默按纯文本切 | `KnowledgeController:150` / `DocumentIngestService:260` / `ChunkSplitter:50` —— **仍未修**，属 §14.3 ③ 的接缝 |
+| `mvn test` 全量上下文依赖本机 MySQL **✅ 已解除（回退式）** | CI 与协作成本 | `MySqlIntegrationTestBase`：有 Docker 走容器，无 Docker 回退本机库 |
 
 ---
 

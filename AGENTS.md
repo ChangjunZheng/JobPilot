@@ -6,7 +6,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 JobPilot 是面向求职流程的个人 Copilot 后端（Java 21 / Spring Boot 4.0 / Maven / MyBatis-Plus + MySQL / Redis / Spring AI 边界 / Ollama + Chroma）。
 
-**当前进度：I-0（RAG 最小闭环）已实现并提交；I-1（账号 + 租户隔离 + 导入异步化）未开始。** **进度状态的唯一事实来源是 [`docs/ROADMAP.md`](./docs/ROADMAP.md)**——「做了哪些、还有哪些没做、当前阻塞什么、下一步做什么」一律以该文件为准，不要依赖本句或任何文档里的零散描述。本句只作概览，可能滞后。
+**当前进度：I-0 与 I-1 均已完成（账号 + 租户隔离 + 导入异步化 + §4.4 顺带清理）；下一个里程碑是 I-2（Agent 最小闭环）。** **进度状态的唯一事实来源是 [`docs/ROADMAP.md`](./docs/ROADMAP.md)**——「做了哪些、还有哪些没做、当前阻塞什么、下一步做什么」一律以该文件为准，不要依赖本句或任何文档里的零散描述。本句只作概览，可能滞后。
 
 仓库根目录 `README.md` 仍停留在骨架阶段的描述，与代码不符；设计与实施计划以 `docs/ARCHITECTURE.md` 为准，实际能力以 `src/main/java` 为准。
 
@@ -63,8 +63,11 @@ RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌�
 - `GET /api/v1/health`、`GET /actuator/health`（exposure 仅 `health,info`，`show-details: never`）
 - `POST /api/v1/knowledge/documents` 提交导入（**I-1c 已异步化**）：落 `PENDING` 后立即返回 `202` + `documentId`，由 DB 队列 worker（`IngestWorker`，`jobpilot.ingest.*` 配置）在后台索引；重试退避 / 每租户上限 / 僵死接管见 `IngestProperties` 与 `docs/ROADMAP.md` §4.3
 - `GET /api/v1/knowledge/documents/{id}` 索引状态查询——异步化后这是跟踪进度的**必需**接口（202 只代表入队成功）
+- `POST /api/v1/knowledge/documents/{id}/reindex` 重排既有文档：仅 `READY` / `FAILED` 可重排（进行中拒绝），重置为 `PENDING` 后交同一个 worker
 - `POST /api/v1/knowledge/search` 纯检索，响应带 `searchMode` / `degraded`
 - `POST /api/v1/knowledge/ask` 引用问答，响应带 `answer` + `citations` + `searchMode` / `degraded`
+
+所有响应（含失败）都带 `requestId`：`RequestIdFilter` 生成、写入 MDC 与 `X-Request-Id` 响应头，用户报障时凭它对齐服务端日志。
 
 `userId` **已于 I-1a 从请求体移除**：身份从 JWT 解析、经 `UserContext` 传递，Controller 签名不接受 `userId`（当初的请求体形态是安全缺陷，见 `docs/ARCHITECTURE.md` §1.7）。`docType` 不传时按文件名后缀猜（`.md`/`.markdown` → `MARKDOWN`，否则 `PLAIN_TEXT`）。**空白 content 不是 400**：按 PRD-FP-1.1 入队后由 worker 判为 `FAILED`（确定性错误不重试）。
 
