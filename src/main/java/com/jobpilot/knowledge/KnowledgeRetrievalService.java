@@ -37,6 +37,12 @@ public class KnowledgeRetrievalService {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeRetrievalService.class);
 
+    /**
+     * 向量路径候选池倍数：按 topK 的 N 倍取候选，相似度阈值截断与 READY 过滤
+     * 吃掉一部分后仍能凑满 topK——不放大候选池时，过滤后的结果经常低于用户要的条数。
+     */
+    private static final int CANDIDATE_POOL_FACTOR = 3;
+
     private final KbChunkMapper chunkMapper;
     private final KbDocumentMapper documentMapper;
     private final EmbeddingPort embeddingPort;
@@ -82,7 +88,8 @@ public class KnowledgeRetrievalService {
         if (query.docType() != null && !query.docType().isBlank()) {
             filters.put("doc_type", query.docType());
         }
-        List<VectorStorePort.VectorMatch> matches = vectorStore.search(queryVector, topK, filters);
+        List<VectorStorePort.VectorMatch> matches =
+                vectorStore.search(queryVector, topK * CANDIDATE_POOL_FACTOR, filters);
         if (matches.isEmpty()) {
             return RetrievalResult.vector(List.of());
         }
@@ -102,6 +109,7 @@ public class KnowledgeRetrievalService {
         Map<String, KbChunkEntity> chunks = loadReadyChunks(scoreById.keySet());
         List<RetrievedChunk> items = scoreById.entrySet().stream()
                 .filter(e -> chunks.containsKey(e.getKey()))
+                .limit(topK) // 候选池放大过，最终仍按用户要的条数截断
                 .map(e -> toRetrieved(chunks.get(e.getKey()), e.getValue()))
                 .toList();
         return RetrievalResult.vector(items);
@@ -154,22 +162,41 @@ public class KnowledgeRetrievalService {
         return hits;
     }
 
-    /** 暴力关键词：按非字母数字切 token，中文额外生成 2~4 字滑窗短语；总数截断防 SQL 爆炸 */
+    /**
+     * 暴力关键词：按非字母数字切 token，中文长 token 用 2 字滑窗、拉丁用 3 字；
+     * 总数截断防 SQL 爆炸。窗口按码点滑动——切进代理对的关键词在 LIKE 里永远匹配不上。
+     */
     List<String> extractKeywords(String text) {
         List<String> keywords = new ArrayList<>();
         for (String token : text.split("[^\\p{L}\\p{N}]+")) {
             if (token.isBlank()) {
                 continue;
             }
-            if (token.length() <= 4) {
+            int cpCount = token.codePointCount(0, token.length());
+            if (cpCount <= 4) {
                 keywords.add(token);
-            } else {
-                for (int i = 0; i + 2 <= token.length() && keywords.size() < 12; i++) {
-                    keywords.add(token.substring(i, Math.min(i + 3, token.length())));
-                }
+                continue;
+            }
+            int window = containsHan(token) ? 2 : 3;
+            int i = 0;
+            while (i + window <= cpCount && keywords.size() < 12) {
+                int start = token.offsetByCodePoints(0, i);
+                keywords.add(token.substring(start, token.offsetByCodePoints(start, window)));
+                i++;
             }
         }
         return keywords.stream().distinct().limit(12).toList();
+    }
+
+    private boolean containsHan(String token) {
+        for (int i = 0; i < token.length(); ) {
+            int cp = token.codePointAt(i);
+            if (cp >= 0x4E00 && cp <= 0x9FFF) {
+                return true;
+            }
+            i += Character.charCount(cp);
+        }
+        return false;
     }
 
     /** 回捞 Chunk 并过滤：只允许 READY 文档参与检索（ARCHITECTURE.md §7.3） */

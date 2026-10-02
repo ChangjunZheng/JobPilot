@@ -3,6 +3,7 @@ package com.jobpilot.knowledge;
 import com.jobpilot.ai.ChatPort;
 import com.jobpilot.ai.EmbeddingPort;
 import com.jobpilot.ai.RetrievalResult;
+import com.jobpilot.ai.RetrievedChunk;
 import com.jobpilot.ai.VectorStorePort;
 import com.jobpilot.config.RagProperties;
 import com.jobpilot.mapper.KbChunkMapper;
@@ -17,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -146,6 +148,77 @@ class KnowledgeRetrievalServiceTest {
 
         assertThat(keywords).contains("3年", "Java", "经验", "熟悉");
         assertThat(keywords.size()).isLessThanOrEqualTo(12);
+    }
+
+    /** 候选池：候选按 topK 的 3 倍过取（阈值截断与 READY 过滤会吃掉一部分），最终仍只返回 topK 条 */
+    @Test
+    void vectorSearchOverFetchesCandidatesThenTruncatesToTopK() {
+        when(embeddingPort.embed(any())).thenReturn(List.of(0.1));
+        when(vectorStore.search(any(), anyInt(), anyMap())).thenReturn(List.of(
+                new VectorStorePort.VectorMatch("doc1#0#1", 0.9),
+                new VectorStorePort.VectorMatch("doc1#0#2", 0.8),
+                new VectorStorePort.VectorMatch("doc1#0#3", 0.7),
+                new VectorStorePort.VectorMatch("doc1#0#4", 0.6),
+                new VectorStorePort.VectorMatch("doc1#0#5", 0.5),
+                new VectorStorePort.VectorMatch("doc1#0#6", 0.4)));
+        when(chunkMapper.selectByIds(any())).thenReturn(List.of(
+                chunk("doc1#0#1"), chunk("doc1#0#2"), chunk("doc1#0#3"),
+                chunk("doc1#0#4"), chunk("doc1#0#5"), chunk("doc1#0#6")));
+        when(documentMapper.selectList(any())).thenReturn(List.of(readyDoc()));
+
+        RetrievalResult result = retrievalService.search(
+                new com.jobpilot.ai.RetrievalQuery("u1", "会用 RAG 吗", 2, null));
+
+        // 用户要 2 条，候选池里 6 条都过阈值——截断后应是分数最高的 2 条，且顺序保持
+        assertThat(result.items()).extracting(RetrievedChunk::chunkId)
+                .containsExactly("doc1#0#1", "doc1#0#2");
+        verify(vectorStore).search(any(), eq(6), anyMap()); // topK(2) × CANDIDATE_POOL_FACTOR(3)
+    }
+
+    /** 汉字长 token 用 2 字窗口——原 3 字窗口在中文里几乎切不出词 */
+    @Test
+    void chineseLongTokenUsesTwoCharacterWindows() {
+        List<String> keywords = retrievalService.extractKeywords("垃圾回收机制");
+
+        assertThat(keywords).containsExactly("垃圾", "圾回", "回收", "收机", "机制");
+    }
+
+    /** 拉丁长 token 保持 3 字窗口，总数仍截断在 12 */
+    @Test
+    void latinLongTokenKeepsThreeCharacterWindowsAndStopsAtTwelve() {
+        List<String> keywords = retrievalService.extractKeywords("transformation");
+
+        assertThat(keywords).hasSize(12);
+        assertThat(keywords).allSatisfy(keyword -> assertThat(keyword).hasSize(3));
+        assertThat(keywords).startsWith("tra", "ran", "ans");
+    }
+
+    /**
+     * 窗口按码点滑动，绝不切进代理对。
+     * <p>
+     * 用例是扩展 B 区汉字（U+20000 起，UTF-16 里各占两个 char）：按 char 算偏移会在第二个窗口
+     * 就切出「以低代理项开头」的非法串，关键词在 LIKE 里永远匹配不上——正是 {@code ChunkSplitter}
+     * 踩过的同一类坑。
+     */
+    @Test
+    void windowsNeverSplitSurrogatePairs() {
+        // U+20000 起六个汉字，每个由一对代理项组成；写成转义形式以免源码编码把字面量弄坏
+        String supplementaryHan =
+                "𠀀𠀁𠀂𠀃𠀄𠀅";
+
+        List<String> keywords = retrievalService.extractKeywords(supplementaryHan);
+
+        assertThat(keywords).isNotEmpty();
+        // 断言每个关键词都是完整的多码点窗口：若 token 被拆成单字，这里会变成 1 码点而暴露
+        assertThat(keywords).allSatisfy(keyword -> assertThat(keyword.codePointCount(0, keyword.length()))
+                .as("窗口未按码点滑动：%s", keyword)
+                .isGreaterThan(1));
+        assertThat(keywords).allSatisfy(keyword -> {
+            assertThat(Character.isLowSurrogate(keyword.charAt(0)))
+                    .as("关键词以低代理项开头，说明切进了代理对：%s", keyword).isFalse();
+            assertThat(Character.isHighSurrogate(keyword.charAt(keyword.length() - 1)))
+                    .as("关键词以高代理项结尾，说明切进了代理对：%s", keyword).isFalse();
+        });
     }
 
     private com.jobpilot.domain.KbDocumentEntity readyDoc() {
