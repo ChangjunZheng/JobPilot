@@ -30,19 +30,27 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleUnauthorized(UnauthorizedException e, HttpServletRequest request) {
         log.warn("SECURITY 401 method={} uri={} user={} reason={}",
                 request.getMethod(), request.getRequestURI(), UserContext.get(), e.getMessage());
-        return ApiResponse.fail(e.getCode(), e.getMessage());
+        return ApiResponse.fail(e.code().name(), e.getMessage());
     }
 
+    /**
+     * 错误码 → HTTP 状态的映射。switch 刻意<b>不带 default</b>：
+     * 新增 {@link ErrorCode} 常量而漏写映射时编译失败——这正是错误码收拢为枚举的目的
+     * （裸字符串比较拼错了只会静默降级成 400，没有任何报错）。
+     */
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiException e, HttpServletRequest request) {
-        HttpStatus status = "NOT_FOUND".equals(e.getCode())
-                ? HttpStatus.NOT_FOUND
-                : HttpStatus.BAD_REQUEST;
+        HttpStatus status = switch (e.code()) {
+            case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            // UNAUTHENTICATED 走不到这里（被上方的 UnauthorizedException 处理器拦截），穷尽性要求列出
+            case BAD_REQUEST, EMAIL_TAKEN, BAD_CREDENTIALS, ACCOUNT_DISABLED,
+                 PRIVACY_CONSENT_REQUIRED, UNAUTHENTICATED -> HttpStatus.BAD_REQUEST;
+        };
         if (status == HttpStatus.NOT_FOUND) {
             log.warn("SECURITY 404 method={} uri={} user={}",
                     request.getMethod(), request.getRequestURI(), UserContext.get());
         }
-        return ResponseEntity.status(status).body(ApiResponse.fail(e.getCode(), e.getMessage()));
+        return ResponseEntity.status(status).body(ApiResponse.fail(e.code().name(), e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

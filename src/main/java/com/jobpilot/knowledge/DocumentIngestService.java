@@ -3,6 +3,7 @@ package com.jobpilot.knowledge;
 import com.jobpilot.ai.EmbeddingPort;
 import com.jobpilot.ai.VectorStorePort;
 import com.jobpilot.common.ApiException;
+import com.jobpilot.common.ErrorCode;
 import com.jobpilot.config.RagProperties;
 import com.jobpilot.domain.KbChunkEntity;
 import com.jobpilot.domain.KbDocumentEntity;
@@ -97,7 +98,7 @@ public class DocumentIngestService {
     public KbDocumentEntity document(String id) {
         KbDocumentEntity doc = documentMapper.selectById(id);
         if (doc == null) {
-            throw new ApiException("NOT_FOUND", "文档不存在：" + id);
+            throw new ApiException(ErrorCode.NOT_FOUND, "文档不存在：" + id);
         }
         return doc;
     }

@@ -2,6 +2,7 @@ package com.jobpilot.controller;
 
 import com.jobpilot.common.ApiException;
 import com.jobpilot.common.ApiResponse;
+import com.jobpilot.common.ErrorCode;
 import com.jobpilot.common.UnauthorizedException;
 import com.jobpilot.config.SecurityProperties;
 import com.jobpilot.security.AuthInterceptor;
@@ -75,7 +76,7 @@ public class AuthController {
     @PostMapping("/register")
     public ApiResponse<TokenResponse> register(@RequestBody @Validated RegisterRequest request) {
         if (!Boolean.TRUE.equals(request.privacyConsent())) {
-            throw new ApiException("PRIVACY_CONSENT_REQUIRED", "注册需先同意隐私政策与数据用途说明");
+            throw new ApiException(ErrorCode.PRIVACY_CONSENT_REQUIRED, "注册需先同意隐私政策与数据用途说明");
         }
         return ApiResponse.ok(new TokenResponse(
                 accountService.register(request.email(), request.password())));

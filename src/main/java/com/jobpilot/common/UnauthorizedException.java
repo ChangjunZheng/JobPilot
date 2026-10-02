@@ -10,6 +10,6 @@ package com.jobpilot.common;
 public class UnauthorizedException extends ApiException {
 
     public UnauthorizedException(String message) {
-        super("UNAUTHENTICATED", message);
+        super(ErrorCode.UNAUTHENTICATED, message);
     }
 }

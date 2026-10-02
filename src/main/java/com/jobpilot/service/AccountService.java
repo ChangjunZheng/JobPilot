@@ -2,6 +2,7 @@ package com.jobpilot.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.jobpilot.common.ApiException;
+import com.jobpilot.common.ErrorCode;
 import com.jobpilot.domain.UserAccountEntity;
 import com.jobpilot.domain.UserCredentialEntity;
 import com.jobpilot.mapper.UserAccountMapper;
@@ -60,7 +61,7 @@ public class AccountService {
             credentialMapper.insert(credential);
         } catch (DuplicateKeyException e) {
             // 唯一键 (provider, identifier) 兜住并发注册；事务回滚，账号不会留下
-            throw new ApiException("EMAIL_TAKEN", "该邮箱已注册");
+            throw new ApiException(ErrorCode.EMAIL_TAKEN, "该邮箱已注册");
         }
         return jwtService.issue(account.getId());
     }
@@ -77,13 +78,13 @@ public class AccountService {
         // 耗时差异把这层伪装拆穿。改成无条件校验一次，哈希缺失时由 PasswordHasher 用哑哈希顶上。
         String secretHash = credential == null ? null : credential.getSecretHash();
         if (!passwordHasher.matchesAlwaysHashing(rawPassword, secretHash)) {
-            throw new ApiException("BAD_CREDENTIALS", "邮箱或密码不正确");
+            throw new ApiException(ErrorCode.BAD_CREDENTIALS, "邮箱或密码不正确");
         }
         // 走到这里 credential 必非空：secretHash 为 null 时上面必返回 false 并已抛出
 
         UserAccountEntity account = accountMapper.selectById(credential.getUserId());
         if (account == null || !STATUS_ACTIVE.equals(account.getStatus())) {
-            throw new ApiException("ACCOUNT_DISABLED", "账号不可用");
+            throw new ApiException(ErrorCode.ACCOUNT_DISABLED, "账号不可用");
         }
         return jwtService.issue(account.getId());
     }
@@ -91,14 +92,14 @@ public class AccountService {
     /** 邮箱大小写不敏感：唯一键建在原始字符串上，规范化必须在写入与查询两侧保持一致 */
     private String normalizeEmail(String email) {
         if (email == null || email.isBlank()) {
-            throw new ApiException("BAD_REQUEST", "邮箱不能为空");
+            throw new ApiException(ErrorCode.BAD_REQUEST, "邮箱不能为空");
         }
         return email.trim().toLowerCase();
     }
 
     private void validatePassword(String rawPassword) {
         if (rawPassword == null || rawPassword.length() < MIN_PASSWORD_LENGTH) {
-            throw new ApiException("BAD_REQUEST", "密码至少 " + MIN_PASSWORD_LENGTH + " 位");
+            throw new ApiException(ErrorCode.BAD_REQUEST, "密码至少 " + MIN_PASSWORD_LENGTH + " 位");
         }
     }
 }
