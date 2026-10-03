@@ -47,8 +47,19 @@ class JwtServiceTest {
     @Test
     void tamperedTokenIsRejected() {
         String token = jwtService.issue("user-a");
-        String tampered = token.substring(0, token.length() - 1) + "x";
+        String[] parts = token.split("\\.");
+        // 篡改 payload 而不是签名段末位。签名是对 payload 算的，改它必然对不上。
+        //
+        // 曾经改的是签名段最后一个字符（替换成 "x"），那是个 6.4% 概率的随机失败：
+        // HS256 签名 32 字节经 base64url 编成 43 个字符，末位只贡献 2 个有效位、
+        // 低 4 位解码时被丢弃。当末位恰好是 "w"（110000）时换成 "x"（110001）
+        // 高 2 位相同，解出的签名完全一样——篡改等于没改，验证照常通过。
+        // 实测 2000 次样本复现（末位为 "w" 的 127 次全部被接受）。
+        char[] payload = parts[1].toCharArray();
+        payload[0] = payload[0] == 'X' ? 'Y' : 'X';
+        String tampered = parts[0] + "." + new String(payload) + "." + parts[2];
 
+        assertThat(tampered).as("篡改必须真的改变令牌，否则本用例什么都没验证").isNotEqualTo(token);
         assertThatThrownBy(() -> jwtService.verify(tampered))
                 .isInstanceOf(JwtService.InvalidTokenException.class);
     }
