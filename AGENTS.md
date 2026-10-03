@@ -6,7 +6,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 JobPilot 是面向求职流程的个人 Copilot 后端（Java 21 / Spring Boot 4.0 / Maven / MyBatis-Plus + MySQL / Redis / Spring AI 边界 / Ollama + Chroma）。
 
-**当前进度：I-0、I-1、I-2 均已完成（RAG 最小闭环 / 账号 + 租户隔离 + 导入异步化 / Agent 最小闭环）；下一个里程碑是 I-3（长期记忆与投递管理）。** **进度状态的唯一事实来源是 [`docs/ROADMAP.md`](./docs/ROADMAP.md)**——「做了哪些、还有哪些没做、当前阻塞什么、下一步做什么」一律以该文件为准，不要依赖本句或任何文档里的零散描述。本句只作概览，可能滞后。
+**当前进度：I-0、I-1、I-2 已完成；I-3 进行中（I-3a 投递记录已完成，I-3b 长期记忆与 I-3c 用量计量未开始）。** **进度状态的唯一事实来源是 [`docs/ROADMAP.md`](./docs/ROADMAP.md)**——「做了哪些、还有哪些没做、当前阻塞什么、下一步做什么」一律以该文件为准，不要依赖本句或任何文档里的零散描述。本句只作概览，可能滞后。
 
 仓库根目录 `README.md` 仍停留在骨架阶段的描述，与代码不符；设计与实施计划以 `docs/ARCHITECTURE.md` 为准，实际能力以 `src/main/java` 为准。
 
@@ -72,6 +72,9 @@ RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌�
 - `POST /api/v1/knowledge/ask` 引用问答，响应带 `answer` + `citations` + `searchMode` / `degraded`
 - `POST /api/v1/agent/run` 发起一次 Agent 对话（**I-2**）：`AgentRunner` 决定是否调用 `knowledge_search` / `job_description_analyze`；响应带 `traceId` + `steps` + `draftIds`
 - `POST /api/v1/agent/approvals/{draftId}/approve` / `reject`、`GET /api/v1/agent/approvals/{draftId}` —— HITL 审批。**审批幂等**：重复 approve 只执行一次副作用；跨租户访问与「不存在」对外不可区分（均为 404）
+- `POST /api/v1/applications`、`GET /{id}`、`PATCH /{id}`、`DELETE /{id}`、`GET ?status=&from=&to=&limit=`、`GET /stats?from=&to=` —— 投递记录（**I-3a**）。状态取值见 `ApplicationStatus`（七个枚举，**未知值显式拒绝**，不静默降级）。`applied_at` 是 DATE，时间范围过滤含当天两端。
+  - **REST 有 DELETE，agent 没有对应的 `application_delete` 工具**——PRD-FP-2.2 的工具清单里没有它，删除不该由模型发起。它与「撤回投递」（状态置 `WITHDRAWN`）是两件事。
+  - PATCH 的三态约定：字段**缺省** = 不修改；**空串** = 清空（仅可空字符串字段）。`appliedAt` 是日期，只能设不能清。
 
 所有响应（含失败）都带 `requestId`：`RequestIdFilter` 生成、写入 MDC 与 `X-Request-Id` 响应头，用户报障时凭它对齐服务端日志。
 
