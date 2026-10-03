@@ -3,6 +3,23 @@ spring:
     name: jobpilot
   profiles:
     default: local
+  ai:
+    ollama:
+      # Spring AI 侧的模型配置与 jobpilot.rag.* 是「同一批模型的两种入口」：
+      # 业务层读 RagProperties（端口与 Chroma 自检），而注入的 EmbeddingModel / ChatModel
+      # 只认 spring.ai.ollama.*。两处必须指向同一个模型，否则会出现
+      # 「配置写着 bge-m3、实际请求 mxbai-embed-large」这类难查的 404。
+      #
+      # 不配的后果（2026-10-03 真机验证实测）：
+      #   - embedding 缺配 → 落到 Spring AI 默认的 mxbai-embed-large → 嵌入 404；
+      #   - chat 缺配       → 落到 Spring AI 默认的 mistral → 对话 404。
+      # 换模型会改变向量维度，必须同时走 ChromaStartupCheck 的维度校验（重建索引或阻断启动）。
+      embedding:
+        options:
+          model: ${JOBPILOT_RAG_EMBEDDING_MODEL:bge-m3}
+      chat:
+        options:
+          model: ${JOBPILOT_RAG_CHAT_MODEL:qwen2.5:3b}
   data:
     redis:
       # 撤销黑名单等命令的超时：Redis 不可达时快速失败走 fail-open（TokenBlacklistService），

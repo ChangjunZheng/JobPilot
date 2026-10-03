@@ -15,7 +15,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
@@ -72,6 +72,12 @@ public class OllamaChatAdapter implements ChatPort {
                 null, "ollama", modelName());
     }
 
+    /**
+     * Spring AI 侧配置的默认模型名。
+     * <p>
+     * 取不到时返回 {@code null} 而非编一个默认值：模型名猜错会让 Ollama 报 404，
+     * 报「未配置模型」比报「模型 x 不存在」更容易定位。
+     */
     private String modelName() {
         ChatOptions defaults = chatModel.getDefaultOptions();
         return defaults == null ? null : defaults.getModel();
@@ -110,14 +116,34 @@ public class OllamaChatAdapter implements ChatPort {
         return result;
     }
 
+    /**
+     * 组装 Spring AI 的调用选项。
+     *
+     * <p><b>必须用 {@code OllamaChatOptions} 而不是 {@code ToolCallingChatOptions.builder()}</b>：
+     * 后者产出 {@code DefaultToolCallingChatOptions}，而 Ollama 的 chat model 内部会把
+     * options 强转成 {@code OllamaChatOptions}，直接 {@code ClassCastException}。
+     * {@code OllamaChatOptions} 本身就实现了 {@code ToolCallingChatOptions}，
+     * 所以工具回调、模型名这些设置方式完全一致。
+     *
+     * <p><b>model 必须显式给，不能指望自动回落。</b>不设 model 时它会被当作 null 一路传到
+     * Ollama，对方报 {@code model cannot be null or empty}——它<b>不会</b>去用
+     * {@code ChatModel.getDefaultOptions()} 里的模型。
+     */
     private ChatOptions toSpringOptions(ChatRequest request) {
-        ToolCallingChatOptions.Builder<?> builder = ToolCallingChatOptions.builder()
-                .toolCallbacks(request.tools().stream().map(OllamaChatAdapter::toToolCallback).toList());
+        String model = request.model() != null && !request.model().isBlank()
+                ? request.model()
+                : modelName();
+        if (model == null || model.isBlank()) {
+            // 请求没指定、Spring AI 侧也没配默认模型：早失败并说清楚该配什么，
+            // 而不是让 null 一路传到 Ollama 变成一句莫名其妙的 "model cannot be null or empty"
+            throw new IllegalStateException(
+                    "未指定模型：请在请求的 model 中给出，或配置 spring.ai.ollama.chat.options.model");
+        }
+        OllamaChatOptions.Builder builder = OllamaChatOptions.builder()
+                .toolCallbacks(request.tools().stream().map(OllamaChatAdapter::toToolCallback).toList())
+                .model(model);
         if (request.temperature() != null) {
             builder.temperature(request.temperature());
-        }
-        if (request.model() != null && !request.model().isBlank()) {
-            builder.model(request.model());
         }
         if (request.maxTokens() != null) {
             builder.maxTokens(request.maxTokens());
