@@ -103,6 +103,27 @@ public class AgentRunner {
     public record Step(int iteration, String kind, String name, long durationMs, String status, String summary) {
     }
 
+    /**
+     * 每轮 run 的 system prompt。
+     *
+     * <p><b>「必须先调工具」这句是实测逼出来的，不是修辞。</b>本机 qwen2.5:3b 在弱提示下
+     * 会反问用户「请提供你的用户名」而<b>不调用</b> {@code knowledge_search}；把规则写死后
+     * 才稳定产出 tool_calls。小模型的工具调用意愿需要明确指令，不能指望它自己领会。
+     *
+     * <p>同理「不要编造」与「引用用 [n]」：I-0 起就确立了「引用列表由服务端从命中 Chunk 组装、
+     * 模型只负责正文」这条不变量，prompt 只是把它讲给模型听。
+     */
+    private static final String SYSTEM_PROMPT = """
+            你是 JobPilot 求职助手。规则：
+            1. 回答任何涉及用户自身经历（简历、项目、技术栈、工作经历）的问题前，**必须先调用 knowledge_search**，
+               拿到证据后再作答。禁止在没有调用工具的情况下直接回答这类问题；
+            2. 只能依据工具返回的【证据】回答，不得编造；
+            3. 引用证据时使用其编号，形如 [1]、[2]；
+            4. 知识库中没有相关证据时，直接回答"知识库中没有找到相关依据"，不要猜测；
+            5. 分析 JD 时，基于 job_description_analyze 返回的材料逐条对照，缺少依据的项写"未找到依据"；
+            6. 回答使用简体中文，简洁分点。
+            """;
+
     public RunResult run(RunRequest request) {
         // 未认证即失败，绝不带着空租户往下走
         String userId = UserContext.require();
@@ -112,7 +133,9 @@ public class AgentRunner {
                 ? UUID.randomUUID().toString()
                 : request.conversationId();
 
-        List<AgentMessage> history = new ArrayList<>(List.of(new AgentMessage.User(request.userMessage())));
+        List<AgentMessage> history = new ArrayList<>(List.of(
+                new AgentMessage.System(SYSTEM_PROMPT),
+                new AgentMessage.User(request.userMessage())));
         List<Step> steps = new ArrayList<>();
         List<String> draftIds = new ArrayList<>();
         int iterations = 0;
