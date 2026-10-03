@@ -661,25 +661,40 @@ Agent tool requests write side effect
 
 ### 5.1 Chat model
 
-> I-0 只实现 `ChatPort.complete(String systemPrompt, String userPrompt) → String`（非流式、无工具、无 usage）。下面的 shape 是 I-2 引入工具调用时的目标协议，当前代码里还没有对应类型。
+> I-0 只实现 `ChatPort.complete(String systemPrompt, String userPrompt) → String`（非流式、无工具、无 usage）。I-2 已引入工具调用，落地为下表。
 
 ```text
 ChatRequest
-- messages: List<ChatMessage>
+- messages: List<AgentMessage>
 - tools: List<ToolDefinition>
-- modelOptions: ModelOptions
-- timeout: Duration
+- model / temperature / maxTokens / timeout
 
-ChatResponse
+ChatCompletion
 - content: String
 - toolCalls: List<ToolCall>
 - finishReason: FinishReason
 - usage: TokenUsage?
-- provider: String
-- model: String
+- provider / model: String
+
+AgentMessage（sealed interface）
+- System(text) / User(text) / Assistant(text, toolCalls) / ToolResult(callId, name, status, text)
 ```
 
+> **命名与 `check-arch.sh` 的冲突（2026-10-03 记录）**：本节原先写作 `ChatResponse` 与
+> `SystemMessage` / `UserMessage` / `AssistantMessage`，但 `scripts/check-arch.sh` 规则 2 用
+> **词边界**匹配这些名字来捕捉 Spring AI 类型泄漏——照此命名会让门禁把**本项目自己的 record**
+> 判成泄漏而使构建失败。已确认的处理是**改类型名、不动脚本**（守门人保持零假阳性优先）：
+> `ChatResponse → ChatCompletion`，消息四类收拢为 sealed `AgentMessage` 的嵌套 record。
+> 副作用：脚本对该词的匹配是纯文本的，**文档注释里提到这些名字同样会触发**，
+> 写注释时须绕开字面量（`ChatCompletion` / `AgentMessage` 的类注释即因此措辞）。
+
 业务层不得接触 Spring AI、供应商 SDK 的 response 或 HTTP JSON；`ai.adapter` 下的适配器负责将其转换为 JobPilot 自己的 record（`ChatPort`/`EmbeddingPort`/`VectorStorePort` 及其入参出参）。I-0 已落地：`OllamaChatAdapter`、`OllamaEmbeddingAdapter` 走 Spring AI 的 `ChatModel`/`EmbeddingModel`，`ChromaVectorStoreAdapter` 保留自定义 `RestClient`。
+
+> **端口不执行工具**（I-2 决策）：`ChatPort.chat()` 只会带回 `ToolCall` 请求。Spring AI 的
+> `ToolCallingManager` / `ToolCallingAdvisor` 能替我们跑完整个 ReAct 循环，但**刻意不用**——
+> 那会把工具执行关进适配器，而租户上下文注入、预算计数、trace、HITL 短路全都必须发生在
+> 工具执行那一刻。`OllamaChatAdapter` 里的 `ToolCallback` 只提供定义，其 `call()` 是永不执行的
+> 存根（真被调到会立刻抛错，用于暴露有人接上了 advisor）。
 
 ### 5.2 Tool protocol
 

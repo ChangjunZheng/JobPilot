@@ -91,6 +91,9 @@ public abstract class MySqlIntegrationTestBase {
                 MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
              Statement statement = connection.createStatement()) {
             statement.execute("SET FOREIGN_KEY_CHECKS = 0");
+            statement.execute("DROP TABLE IF EXISTS agent_approval_draft");
+            statement.execute("DROP TABLE IF EXISTS agent_trace_step");
+            statement.execute("DROP TABLE IF EXISTS agent_trace");
             statement.execute("DROP TABLE IF EXISTS kb_chunk");
             statement.execute("DROP TABLE IF EXISTS kb_document");
             statement.execute("DROP TABLE IF EXISTS user_credential");
