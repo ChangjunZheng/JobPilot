@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 /**
- * 把 JD 分析结果存入知识库（PRD-FP-2.2，<b>唯一的写入类工具，必须走 HITL</b>）。
+ * 把 JD 分析结果存入知识库（PRD-FP-2.2，<b>写入知识库，必须走 HITL</b>）。
  *
  * <h3>它绝不直接写入</h3>
  * 即使 {@code approvalMode} 是 AUTO（理论上不会，本工具固定 REQUIRE_APPROVAL），

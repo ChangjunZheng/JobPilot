@@ -22,6 +22,13 @@ public final class ToolErrorCode {
     public static final String UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE";
     /** 模型请求了不存在的工具名 */
     public static final String UNKNOWN_TOOL = "UNKNOWN_TOOL";
+    /**
+     * 目标不存在，或不属于当前租户（两者对外不可区分）。
+     * <p>
+     * 与 {@link #INVALID_ARGUMENTS} 分开：参数合法但对象不在，与「参数本身有问题」是两种归因，
+     * 混在一起会让 trace 里的失败原因误导排查。
+     */
+    public static final String NOT_FOUND = "NOT_FOUND";
 
     private ToolErrorCode() {
     }

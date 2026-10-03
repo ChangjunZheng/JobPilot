@@ -121,7 +121,14 @@ public class AgentRunner {
             3. 引用证据时使用其编号，形如 [1]、[2]；
             4. 知识库中没有相关证据时，直接回答"知识库中没有找到相关依据"，不要猜测；
             5. 分析 JD 时，基于 job_description_analyze 返回的材料逐条对照，缺少依据的项写"未找到依据"；
-            6. 回答使用简体中文，简洁分点。
+            6. 涉及投递记录时必须用工具，不要凭印象作答：
+               - 用户说「投了某家」「帮我记一下」→ application_create；
+               - 说「那家面试了」「状态改成…」→ 先用 application_query 拿到 ID，再 application_update；
+               - 问「投了哪些」「有没有跟进」→ application_query；
+               - 问「总共投了多少家」「多少在面试」→ application_stats；
+               - **创建前先 application_query 查重**，同一公司同一岗位不要重复录入；
+            7. 投递类工具的日期参数用 yyyy-MM-dd；状态取值以工具说明里列出的枚举为准，不要自造；
+            8. 回答使用简体中文，简洁分点。
             """;
 
     public RunResult run(RunRequest request) {
