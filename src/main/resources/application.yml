@@ -44,15 +44,15 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 jobpilot:
-  ai:
-    chat-model: ${JOBPILOT_AI_CHAT_MODEL:deepseek-chat}
-    max-iterations: ${JOBPILOT_AI_MAX_ITERATIONS:5}
   agent:
     # I-2 ReAct runner 预算与超时（ARCHITECTURE §6）
     max-iterations: 5
     max-tool-calls-per-run: 8
     llm-timeout: 30s
     llm-retry: 1
+    # 留空 = 用 Spring AI 配置的那个模型（spring.ai.ollama.chat.options.model）。
+    # 刻意不在这里再写一遍模型名：模型名已经有两个入口（jobpilot.rag.chat-model 供业务层读、
+    # spring.ai.ollama.chat.options.model 供注入的 ChatModel 读），第三个只会增加漂移面。
     model: ${JOBPILOT_AGENT_MODEL:}
     temperature: 0.2
     max-tokens: 1024

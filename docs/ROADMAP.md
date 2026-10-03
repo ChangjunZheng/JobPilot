@@ -3,9 +3,9 @@
 | 项 | 内容 |
 |---|---|
 | 最后更新 | 2026-10-03 |
-| 当前迭代 | **I-1 已完成（I-1a/I-1b/I-1c + §4.4 全部收口）；下一个里程碑 I-2（Agent 最小闭环）** |
-| 已完成 | I-0、I-1 |
-| 最近验证 | 80 个测试通过（含真实 MySQL 越权/降级/异步认领、评测集结构校验、候选池与码点窗口回归）；`check-arch.sh` 全部通过；真实 Redis 登出撤销端到端通过 |
+| 当前迭代 | **I-2 已完成（Agent 最小闭环）；下一个里程碑 I-3（长期记忆与投递管理）** |
+| 已完成 | I-0、I-1、I-2 |
+| 最近验证 | 110 个测试通过（含真实 MySQL 审批幂等/租户隔离、真机 ReAct 闭环）；`check-arch.sh` 全部通过；真实 Redis 登出撤销端到端通过 |
 
 > **本文件是「进度状态」的唯一事实来源。**
 > BRD / PRD / ARCHITECTURE 只回答「要做什么」和「为什么这么做」，**不记录做到哪一步**。
@@ -20,7 +20,7 @@
 |---|---|---|---|
 | **I-0** | 技术基线 + RAG 最小闭环 | ✅ **已完成** | 导入 → 嵌入 → 向量检索 → 引用问答的 API 闭环可用 |
 | **I-1** | 账号 + 租户隔离 + 导入异步化 | ✅ **已完成** | 新用户可注册并完成导入→问答；跨租户越权用例全通过 |
-| **I-2** | Agent 最小闭环 | ⬜ 未开始 | 自研 ReAct runner + `knowledge_search` + JD 分析 + trace + HITL |
+| **I-2** | Agent 最小闭环 | ✅ **已完成** | 自研 ReAct runner + `knowledge_search` + JD 分析 + trace + HITL |
 | **I-3** | 长期记忆与投递管理 | ⬜ 未开始 | Memory + 投递 CRUD + 用量计量，全部通过隔离用例 |
 | **I-4** | 产品化外壳 | ⬜ 未开始 | 四个页面可用；10~20 个真实 JD 端到端演练通过 |
 | **I-5** | 商业化与合规收口 | ⬜ 未开始 | 配额、订阅计费、数据导出自助化、SSE |
@@ -125,7 +125,54 @@
 
 ---
 
-## 5. 已知缺陷（I-1 需一并修复）
+## 5. I-2 · Agent 最小闭环
+
+**状态：** `[x]` 全部完成（2026-10-03，110 个测试通过 + 真机闭环验证）。
+
+### 5.1 已完成项
+
+- [x] **协议与端口** —— `com.jobpilot.ai` 新增 `AgentMessage`（sealed，四类角色）/`ChatRequest`/`ChatCompletion`/`ToolCall`/`ToolDefinition`/`ToolExecutionContext`/`ToolExecutionResult`；`ChatPort` 加 `chat(ChatRequest)`，`complete` 保留不动。**类型名刻意避开 Spring AI 的类名**，见 ARCHITECTURE §5.1 记录
+- [x] **自研 ReAct 循环** —— `AgentRunner`：最多 5 轮、工具上限 8 次/run、LLM 30s 超时重试 1 次；工具异常与未知工具名都转成结构化失败回填给模型，**绝不外抛到 Controller**；上下文超长时截断并记 trace
+- [x] **`knowledge_search`** —— 租户只来自 `ToolExecutionContext`；模型参数里的 `userId` 一律忽略（有回归测试锁定）
+- [x] **`job_description_analyze`** —— 只做「解析 JD 字段 + 检索个人材料并附引用」；PRD-FP-2.3 的八项分析字段由**外层模型**产出，工具内不嵌套 LLM 调用（避免延迟翻倍与双层预算）
+- [x] **HITL** —— `save_jd_analysis_to_kb` 只落 `agent_approval_draft` 草稿并返回 `PENDING_APPROVAL`，本轮 run 立即结束；用户经 `POST /api/v1/agent/approvals/{id}/approve|reject` 审批
+- [x] **幂等两道防线** —— ① 审批 `SELECT ... FOR UPDATE` 锁行 + 状态检查；② `UNIQUE (user_id, idempotency_key)`，捕获 `DuplicateKeyException` 后按租户重读并返回同一草稿
+- [x] **trace** —— `agent_trace` + `agent_trace_step` 两张独立表。**不参与检索是结构保证**（检索只读 `kb_document`/`kb_chunk`），不靠过滤条件
+- [x] **配置** —— `AgentProperties`（`jobpilot.agent.*`）；`provider-path` 声明但不消费，是本地/云端双路径的接缝
+- [x] **API** —— `POST /api/v1/agent/run`、`/approvals/{id}/approve|reject`、`GET /approvals/{id}`；请求体一律不含 `userId`
+
+### 5.2 验证证据（2026-10-03）
+
+| 层次 | 证据 |
+|---|---|
+| 单元 | `AgentRunnerTest` 11 例（预算截断、异常不外抛、重试次数、HITL 短路、未认证 401）；`KnowledgeSearchToolTest` 5 例（**伪造 `userId` 被忽略**）；`ApprovalDraftServiceTest` 9 例 |
+| 真实 MySQL | `ApprovalIntegrationTest` 5 例：唯一索引**真抛** `DuplicateKeyException`、`FOR UPDATE` **真串行化**并发审批、租户拦截器**真覆盖**三张新表、重复审批只建一份文档 |
+| 真机闭环 | `AgentE2EIT`（`AGENT_E2E=true` 手动触发）：真实 qwen2.5:3b 调用 `knowledge_search` → 回填证据 → 给出答案 |
+
+全量 `mvn test` **110 通过**；`check-arch.sh` 六条全过。
+
+### 5.3 真机验证挖出的 4 个缺陷（均已修，见 `62e3aa4` / `833d8e5`）
+
+1. **`spring.ai.ollama.*` 从未配置** —— `jobpilot.rag.*` 与 `spring.ai.ollama.*` 是同一批模型的**两个入口**，只有后者能到达注入的 `ChatModel`/`EmbeddingModel`。此前只配了前者，于是嵌入落到 Spring AI 默认的 `mxbai-embed-large`、对话落到 `mistral`，**这两个模型本机都没装**。属**先前就存在的缺口**，被真机验证首次暴露。
+2. **`ToolCallingChatOptions` 不回落默认模型** —— 不设 model 时把 `null` 一路传给 Ollama，报 `model cannot be null or empty`。
+3. **`ToolCallingChatOptions.builder()` 类型不对** —— Ollama 的 chat model 内部把 options 强转成 `OllamaChatOptions`，必须用 `OllamaChatOptions.builder()`（它本身即实现 `ToolCallingChatOptions`）。
+4. **`AgentRunner` 原先没有 system prompt** —— 实测 qwen2.5:3b 在弱提示下**反问用户而不调工具**；把「回答涉及用户经历前必须先调 `knowledge_search`」写死后才稳定触发。**这个 prompt 是闭环能跑起来的前提，不是可选调优。**
+
+### 5.4 明确不做（留给后续）
+
+- [ ] **本地/云端双路径的云端适配器** —— 接缝已留（`ChatPort` 无路径分支、`provider-path` 只允许出现在 Bean 装配处）；云端 provider 与用量计量属 I-3/I-5
+- [ ] **跨 run 会话记忆** —— `conversationId` 本轮仅作关联标识，ReAct 历史是 per-run 的；随 I-3 的 Memory 一起做（用无淘汰的内存 Map 更糟，不如明说限制）
+- [ ] **`application_*` 工具与投递 CRUD** —— 表还不存在，不造空表
+- [ ] **`EXPIRED` 审批状态** —— PRD 列了它，但需要调度器；`PENDING` 长期堆积是已知的小风险
+- [ ] 多 Agent、并行工具、SSE
+
+### 5.5 已知风险
+
+- **`AgentE2EIT` 会写 Chroma**。它用 `@Transactional` 回滚 + `process` 的幂等清理，通常不留残留（已核实集合为空）。但 2026-10-03 有一次全量跑出 1 个失败、随后**连续 5 次复现不出**，怀疑是事务回滚与 `ChromaStartupCheck` 启动自检的时序竞争。**未定位到根因，如实记为已知风险。**
+
+---
+
+## 6. 已知缺陷（I-1 需一并修复）
 
 | 缺陷 | 影响 | 位置 |
 |---|---|---|
@@ -138,7 +185,7 @@
 
 ---
 
-## 6. 更新约定
+## 7. 更新约定
 
 1. **只在本文件勾选进度**。BRD / PRD / ARCHITECTURE 不记录状态，避免多处漂移；
 2. 迭代**完成时**才更新第 1 节总览表的「状态」列，进行中不改；

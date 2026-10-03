@@ -6,7 +6,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 JobPilot 是面向求职流程的个人 Copilot 后端（Java 21 / Spring Boot 4.0 / Maven / MyBatis-Plus + MySQL / Redis / Spring AI 边界 / Ollama + Chroma）。
 
-**当前进度：I-0 与 I-1 均已完成（账号 + 租户隔离 + 导入异步化 + §4.4 顺带清理）；下一个里程碑是 I-2（Agent 最小闭环）。** **进度状态的唯一事实来源是 [`docs/ROADMAP.md`](./docs/ROADMAP.md)**——「做了哪些、还有哪些没做、当前阻塞什么、下一步做什么」一律以该文件为准，不要依赖本句或任何文档里的零散描述。本句只作概览，可能滞后。
+**当前进度：I-0、I-1、I-2 均已完成（RAG 最小闭环 / 账号 + 租户隔离 + 导入异步化 / Agent 最小闭环）；下一个里程碑是 I-3（长期记忆与投递管理）。** **进度状态的唯一事实来源是 [`docs/ROADMAP.md`](./docs/ROADMAP.md)**——「做了哪些、还有哪些没做、当前阻塞什么、下一步做什么」一律以该文件为准，不要依赖本句或任何文档里的零散描述。本句只作概览，可能滞后。
 
 仓库根目录 `README.md` 仍停留在骨架阶段的描述，与代码不符；设计与实施计划以 `docs/ARCHITECTURE.md` 为准，实际能力以 `src/main/java` 为准。
 
@@ -58,7 +58,9 @@ RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌�
 
 配置全部集中在 `jobpilot.rag.*`（`RagProperties`），端口/适配层只读这里，业务层不感知 Ollama/Chroma。
 
-**`application.yml` 里的 `jobpilot.ai.*`（`chat-model`、`max-iterations`）目前没有任何 `@ConfigurationProperties` 绑定它**——全项目只有 `RagProperties` 一个绑定类，这两个键是给 M-2 Agent 预留的，现在是死配置。改配置时别以为改它能影响运行行为。
+**模型名有两个入口，改一个不够**（2026-10-03 真机验证踩过）：`jobpilot.rag.*` 是给**业务层**读的（端口、Chroma 维度自检），而注入的 `ChatModel` / `EmbeddingModel` 只认 **`spring.ai.ollama.*`**。两处必须指向同一个模型，否则会出现「配置写着 bge-m3、实际请求 mxbai-embed-large」这类 404。Spring AI 的默认值（embedding 是 `mxbai-embed-large`、chat 是 `mistral`）本机都没装，所以**不显式配置就会在嵌入/对话时 404**。
+
+`jobpilot.agent.*`（`AgentProperties`）是 I-2 的 runner 预算与超时。其中 `agent.model` **留空是有意的**——留空即回落到 `spring.ai.ollama.chat.options.model`，刻意不在配置里第三次写模型名。
 
 ## API
 
@@ -68,6 +70,8 @@ RAG 闭环需要同时具备：MySQL（Flyway 建表）、Ollama（`bge-m3` 嵌�
 - `POST /api/v1/knowledge/documents/{id}/reindex` 重排既有文档：仅 `READY` / `FAILED` 可重排（进行中拒绝），重置为 `PENDING` 后交同一个 worker
 - `POST /api/v1/knowledge/search` 纯检索，响应带 `searchMode` / `degraded`
 - `POST /api/v1/knowledge/ask` 引用问答，响应带 `answer` + `citations` + `searchMode` / `degraded`
+- `POST /api/v1/agent/run` 发起一次 Agent 对话（**I-2**）：`AgentRunner` 决定是否调用 `knowledge_search` / `job_description_analyze`；响应带 `traceId` + `steps` + `draftIds`
+- `POST /api/v1/agent/approvals/{draftId}/approve` / `reject`、`GET /api/v1/agent/approvals/{draftId}` —— HITL 审批。**审批幂等**：重复 approve 只执行一次副作用；跨租户访问与「不存在」对外不可区分（均为 404）
 
 所有响应（含失败）都带 `requestId`：`RequestIdFilter` 生成、写入 MDC 与 `X-Request-Id` 响应头，用户报障时凭它对齐服务端日志。
 
@@ -98,6 +102,20 @@ query 嵌入 → Chroma top-K（where 过滤 `user_id` / 可选 `doc_type`）→
 ### 问答（`knowledge.RagAskService`）
 
 证据为空时**直接拒答，不调用 LLM**（有无降级两种不同话术）。有证据时：引用列表由服务端从命中的 Chunk 组装，模型只负责正文，prompt 里带编号的 `[n]` 证据块——目的是杜绝模型虚构文档名。
+
+### Agent（`agent.AgentRunner`，I-2）
+
+自研的**线性** ReAct 循环（ARCHITECTURE §4.3/§6）：`ChatPort.chat` 拿工具请求 → `AgentToolRegistry` 分发执行 → 结果回填 → 重复，直到模型给出答案或预算耗尽。三条不变量，改代码时别破：
+
+1. **工具异常绝不外抛**——工具抛异常、模型请求不存在的工具名，都转成 `ToolExecutionResult(FAILED)` 回填给模型，由模型在预算内决定重试或说明；
+2. **租户只来自 `ToolExecutionContext`**——模型参数里的 `userId` 是编造的输入，工具必须忽略（`KnowledgeSearchTool` 有回归测试锁定）；
+3. **HITL 不在环上等**——写入类工具返回 `PENDING_APPROVAL` 即结束本轮 run，用户经独立接口审批。让 HTTP 请求挂起等人点确认会引入连接超时、租户占线程、暂停态存哪三个问题。
+
+**不用 Spring AI 的 `ToolCallingAdvisor` / `ToolCallingManager`**：它们会把工具执行关进适配器，而租户注入、预算计数、trace、HITL 短路全都在工具执行那一刻。适配器里的 `ToolCallback` 只提供定义，`call()` 是永不执行的存根（真被调到会抛错，用于暴露有人接上了 advisor）。
+
+**`AgentRunner.SYSTEM_PROMPT` 是功能性的，不是文案**：实测 qwen2.5:3b 在弱提示下反问用户而不调工具，把「必须先调 `knowledge_search`」写死后才稳定触发。删掉或弱化它会让真机闭环失效——而 mock 单测发现不了（它们直接返回 tool_calls）。
+
+**trace 独立成表**（`agent_trace` / `agent_trace_step`）是**结构保证**：检索只读 `kb_document`/`kb_chunk`，trace 不在其路径上，所以不需要过滤条件。改表结构时要保持这个前提。
 
 ### 启动自检（`knowledge.ChromaStartupCheck`）
 
